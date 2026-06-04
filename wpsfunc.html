@@ -1,0 +1,531 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>WPS Python 智能实时开发面板 V 1.0.0</title>
+
+<script src="https://cdn.jsdelivr.net/pyodide/v0.26.1/full/pyodide.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.45.0/min/vs/loader.min.js"></script>
+
+<style>
+:root {
+  --primary-color: #0078d4;
+  --success-color: #107c41;
+  --error-color: #a80000;
+  --bg-color: #f3f2f1;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  padding: 12px;
+  background: var(--bg-color);
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  box-sizing: border-box;
+}
+
+.section-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #323130;
+  margin: 0 0 8px 0;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+/* ===== 呼吸灯 ===== */
+#status-light {
+  position: fixed;
+  top: 14px;
+  right: 16px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  cursor: pointer;
+  z-index: 999;
+  box-shadow: 0 0 6px rgba(0,0,0,0.25);
+  transition: background 0.3s ease, transform 0.3s ease;
+}
+
+.status-light-loading {
+  background: #ffb900;
+  animation: breath 1.2s infinite alternate;
+}
+
+.status-light-success {
+  background: var(--success-color);
+}
+
+.status-light-error {
+  background: var(--error-color);
+  animation: shake 0.4s ease;
+}
+
+@keyframes breath {
+  from { transform: scale(1); opacity: 0.6; }
+  to   { transform: scale(1.35); opacity: 1; }
+}
+
+@keyframes shake {
+  0% { transform: translateX(0); }
+  30% { transform: translateX(-3px); }
+  60% { transform: translateX(3px); }
+  100% { transform: translateX(0); }
+}
+
+/* ===== 编译结果面板 ===== */
+#status-panel {
+  position: fixed;
+  top: 36px;
+  right: 16px;
+  width: 380px;
+  max-height: 260px;
+  overflow-y: auto;
+  background: white;
+  border-radius: 6px;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.18);
+  padding: 10px 12px;
+  font-size: 12px;
+  font-family: Consolas, monospace;
+  display: none;
+  z-index: 998;
+}
+
+#status-panel.show {
+  display: block;
+}
+
+#status-panel.error {
+  border-left: 4px solid var(--error-color);
+  color: var(--error-color);
+}
+
+#status-panel.success {
+  border-left: 4px solid var(--success-color);
+  color: var(--success-color);
+}
+
+/* 编辑器 */
+.editor-wrapper {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 260px;
+  margin-bottom: 12px;
+}
+
+#editor-container {
+  flex: 1;
+  border: 1px solid #dee2e6;
+  border-radius: 6px;
+  overflow: hidden;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+}
+
+/* 函数列表 */
+.list-container {
+  background: white;
+  border-radius: 6px;
+  border: 1px solid #e0e0e0;
+  max-height: 220px;
+  overflow-y: auto;
+  padding: 0;
+  margin: 0;
+  list-style: none;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.02);
+}
+
+.func-item {
+  padding: 10px 12px;
+  border-bottom: 1px solid #f3f2f1;
+  transition: background 0.2s;
+}
+
+.func-item:last-child {
+  border-bottom: none;
+}
+
+.func-item:hover {
+  background: #faf9f8;
+}
+
+.func-header {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+
+.func-badge {
+  background: #deeaf6;
+  color: #1e4e79;
+  font-family: Consolas, monospace;
+  font-weight: 600;
+  font-size: 12px;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+.func-args {
+  color: #605e5c;
+  font-size: 12px;
+  font-family: Consolas, monospace;
+}
+
+.func-desc {
+  color: #797775;
+  font-size: 11px;
+  line-height: 1.4;
+  margin: 0;
+  padding-left: 2px;
+}
+</style>
+</head>
+
+<body>
+
+<div id="status-light" class="status-light-loading" title="点击查看编译结果"></div>
+<div id="status-panel"></div>
+
+<div class="editor-wrapper">
+  <div class="section-title">WPS Python 函数代码编辑器</div>
+  <div id="editor-container"></div>
+</div>
+
+<div class="section-title">已同步至 WPS 的函数</div>
+<ul id="func-list" class="list-container">
+  <li style="padding:12px;color:#999;font-size:12px;text-align:center;">
+    运行环境配置中...
+  </li>
+</ul>
+
+<script>
+let pyodideInstance = null;
+let monacoEditor = null;
+let registeredFuncNames = [];
+let compileTimeout = null;
+
+const defaultCode = `@wps_py_func
+def py_add(a, b):
+    \"\"\"
+    基础加法函数。
+    支持单元格单值直接相加，返回两数之和。
+    \"\"\"
+    v1 = clean_val(a)
+    v2 = clean_val(b)
+    return float(v1) + float(v2)
+
+@wps_py_func
+def py_to_upper(text_range):
+    \"\"\"
+    大写转换函数。
+    支持选择 A1:B5 矩阵区域，将范围内所有英文文本转为大写格式。
+    \"\"\"
+    if isinstance(text_range, list):
+        return [[str(cell).upper() if cell is not None else "" for cell in row] for row in text_range]
+    return str(text_range).upper()`;
+
+/* ===== 状态管理 ===== */
+function updateStatus(text, type) {
+  const light = document.getElementById('status-light');
+  const panel = document.getElementById('status-panel');
+
+  light.className = '';
+  panel.className = '';
+  panel.innerText = text;
+
+  switch (type) {
+    case 'loading':
+      light.classList.add('status-light-loading');
+      break;
+    case 'success':
+      light.classList.add('status-light-success');
+      panel.classList.add('success');
+      break;
+    case 'error':
+      light.classList.add('status-light-error');
+      panel.classList.add('error');
+      break;
+  }
+}
+
+/* ===== 点击灯才展开 ===== */
+document.getElementById('status-light').onclick = () => {
+  document.getElementById('status-panel').classList.toggle('show');
+};
+
+/* ===== Monaco ===== */
+function initMonaco() {
+  return new Promise(resolve => {
+    require.config({
+      paths: { vs: 'https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.45.0/min/vs' }
+    });
+    require(['vs/editor/editor.main'], () => {
+      monacoEditor = monaco.editor.create(
+        document.getElementById('editor-container'),
+        {
+          value: defaultCode,
+          language: 'python',
+          theme: 'vs-dark',
+          fontSize: 13,
+          minimap: { enabled: false },
+          automaticLayout: true,
+          tabSize: 4,
+          fontFamily: 'Consolas, Monaco, monospace'
+        }
+      );
+      resolve();
+    });
+  });
+}
+
+/* ===== Pyodide + Jedi ===== */
+async function initEngine() {
+  try {
+    await initMonaco();
+    updateStatus('加载 Python WASM 核心...', 'loading');
+
+    pyodideInstance = await loadPyodide();
+
+    updateStatus('配置 Jedi 智能补全组件...', 'loading');
+    await pyodideInstance.loadPackage('micropip');
+    const micropip = pyodideInstance.pyimport('micropip');
+    await micropip.install('jedi');
+
+    await pyodideInstance.runPythonAsync(`
+import inspect, json, jedi
+from pyodide.ffi import JsProxy
+
+py_functions_registry = {}
+
+def wps_py_func(func):
+    func_name = func.__name__.upper()
+    py_functions_registry[func_name] = func
+    return func
+
+def clean_val(x):
+    if isinstance(x, JsProxy):
+        try:
+            x = x.to_py()
+        except:
+            x = str(x)
+    if isinstance(x, list):
+        return clean_val(x[0]) if x else 0
+    return x
+
+def get_registered_functions_meta():
+    meta = []
+    for n, f in py_functions_registry.items():
+        sig = inspect.signature(f)
+        args = [p.name for p in sig.parameters.values()]
+        doc = inspect.getdoc(f) or "暂无描述"
+        meta.append({"name": n, "args": args, "desc": doc})
+    return json.dumps(meta)
+
+def get_jedi_completions(code, line, column):
+    try:
+        s = jedi.Script(code)
+        c = s.complete(line, column)
+        return json.dumps([
+            {"label": i.name, "kind": i.type, "detail": i.description, "doc": i.docstring()}
+            for i in c
+        ])
+    except:
+        return json.dumps([])
+`);
+
+    registerMonacoAutoComplete();
+    registerMonacoHover(); // ✅ 悬浮提示
+
+    monacoEditor.onDidChangeModelContent(() => {
+      clearTimeout(compileTimeout);
+      updateStatus('正在输入...', 'loading');
+      compileTimeout = setTimeout(reloadAndRegister, 500);
+    });
+
+    await reloadAndRegister();
+
+  } catch (e) {
+    updateStatus(`环境初始化失败:\n${e.message}`, 'error');
+  }
+}
+
+/* ===== 补全 ===== */
+function registerMonacoAutoComplete() {
+  monaco.languages.registerCompletionItemProvider('python', {
+    triggerCharacters: ['.', ' ', '(', '@'],
+    provideCompletionItems(model, pos) {
+      try {
+        const r = pyodideInstance.globals.get('get_jedi_completions')(
+          model.getValue(),
+          pos.lineNumber,
+          pos.column - 1
+        );
+        const items = JSON.parse(r).map(i => ({
+          label: i.label,
+          kind: monaco.languages.CompletionItemKind.Function,
+          detail: i.detail,
+          documentation: i.doc,
+          insertText: i.label
+        }));
+        return { suggestions: items };
+      } catch {
+        return { suggestions: [] };
+      }
+    }
+  });
+}
+
+/* ===== ✅ 悬浮提示（Hover）===== */
+function registerMonacoHover() {
+  monaco.languages.registerHoverProvider('python', {
+    provideHover(model, position) {
+      try {
+        const r = pyodideInstance.globals.get('get_jedi_completions')(
+          model.getValue(),
+          position.lineNumber,
+          position.column - 1
+        );
+        const items = JSON.parse(r);
+        if (!items.length) return null;
+
+        const i = items[0];
+        return {
+          contents: [
+            { value: `**${i.label}**` },
+            { value: i.detail || '' },
+            { value: i.doc || '暂无文档' }
+          ]
+        };
+      } catch {
+        return null;
+      }
+    }
+  });
+}
+
+/* ===== 热编译 ===== */
+async function reloadAndRegister() {
+  const funcListEl = document.getElementById('func-list');
+  const code = monacoEditor.getValue();
+
+  if (typeof Application !== 'undefined' && Application.RemoveCustomFunction) {
+    registeredFuncNames.forEach(n => {
+      try {
+        Application.RemoveCustomFunction('', n);
+        delete window[n];
+      } catch {}
+    });
+  }
+  registeredFuncNames = [];
+
+  try {
+    await pyodideInstance.runPythonAsync('py_functions_registry = {}');
+    await pyodideInstance.runPythonAsync(code);
+
+    const meta = JSON.parse(
+      await pyodideInstance.runPythonAsync('get_registered_functions_meta()')
+    );
+
+    funcListEl.innerHTML = '';
+
+    if (!Application || !Application.AddCustomFunction) {
+      updateStatus('⚡ 本地编译通过（未连接 WPS）', 'success');
+      renderListItems(meta, false);
+      return;
+    }
+
+    meta.forEach(fn => {
+      window[fn.name] = function (...args) {
+        try {
+          const pf = pyodideInstance.globals.get('py_functions_registry').get(fn.name);
+          const pa = args.map(a => a?.toJs ? a.toJs() : a);
+          let r = pf(...pa);
+          if (r instanceof pyodideInstance.ffi.PyProxy) r = r.toJs();
+          return Array.isArray(r) ? [r] : [[r]];
+        } catch (e) {
+          return [[`#VALUE! (${e.message})`]];
+        }
+      };
+
+      Application.AddCustomFunction('', fn.name, window[fn.name], {
+        description: fn.desc.split('\n')[0],
+        result: { type: 'any[][]' },
+        parameters: fn.args.map(a => ({
+          name: a,
+          type: 'any[][]',
+          description: `参数: ${a}`
+        }))
+      });
+
+      registeredFuncNames.push(fn.name);
+    });
+
+    renderListItems(meta, true);
+    updateStatus(
+      `✅ Excel 协同就绪，已同步 ${registeredFuncNames.length} 个函数`,
+      'success'
+    );
+
+    Application.sheet?.Calculate?.();
+
+  } catch (e) {
+    updateStatus(`🚨 编译异常\n${e.message}`, 'error');
+  }
+}
+
+/* ===== 函数列表 ===== */
+function renderListItems(list) {
+  const el = document.getElementById('func-list');
+  if (!list.length) {
+    el.innerHTML = `<li style="padding:12px;text-align:center;color:#999;">未发现 @wps_py_func 函数</li>`;
+    return;
+  }
+  el.innerHTML = list.map(fn => `
+    <li class="func-item">
+      <div class="func-header">
+        <span class="func-badge">=${fn.name}</span>
+        <span class="func-args">(${fn.args.join(', ')})</span>
+      </div>
+      <p class="func-desc">${fn.desc.replace(/\n/g, '<br>')}</p>
+    </li>
+  `).join('');
+}
+
+	// 将 matplotlib 图表以图片形式插入 WPS 表格
+    // 优先：剪贴板粘贴（原生图片）→ AddPicture 临时文件 → 降级 WebShape
+    function insertMplAsPicture(imgDataUrl) {
+        const width = 500, height = 350;
+        let left = 10, top = 10;
+        try {
+            const et = (typeof wps !== "undefined") ? wps.EtApplication()
+                     : (typeof Application !== "undefined") ? Application : null;
+            if (!et) { console.warn("[WPS] 无法访问 ET Application"); return; }
+            const sheet = et.ActiveSheet;
+            try {
+                const cell = sheet.ActiveCell;
+                if (cell) { left = cell.Left || left; top = cell.Top || top; }
+            } catch(_) {}
+
+            const shapes = sheet.Shapes;
+            shapes.AddPicture({
+                FileName: imgDataUrl,
+                LinkToFile: 0,
+                SaveWithDocument: -1,
+                Left: left,
+                Top: top,
+                Width: width,
+                Height: height
+            });
+        } catch(e) {
+            console.error("[WPS] insertMplAsPicture 错误:", e);
+        }
+    }
+	
+window.onload = () => setTimeout(initEngine, 300);
+</script>
+</body>
+</html>
