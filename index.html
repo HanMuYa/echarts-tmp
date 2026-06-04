@@ -1,60 +1,43 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>WPS 图表渲染器</title>
-    <!-- 1. 引入 ECharts 依赖 (确保网络可达) -->
-    <script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
-    <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { width: 100vw; height: 100vh; overflow: hidden; background: transparent; }
-        #chart_container { width: 100%; height: 100%; }
-    </style>
+<meta charset="UTF-8">
+<title>WPS 图表渲染器</title>
+<script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
+<style>
+html, body { margin:0; padding:0; width:100%; height:100%; overflow:hidden; background:transparent; }
+#chart { width:100%; height:100%; }
+</style>
 </head>
 <body>
-    <div id="chart_container"></div>
+<div id="chart"></div>
 
-    <script>
-        /**
-         * 核心渲染逻辑
-         * 1. 监听 URL Hash 变化或直接读取当前 URL
-         * 2. 提取 'data' 参数并进行 Base64 解码
-         * 3. 使用 ECharts 渲染图表
-         */
-        function renderChart() {
-            const container = document.getElementById('chart_container');
-            // 容错处理：若未传入参数，显示提示
-            if (!window.location.hash || window.location.hash.length <= 1) {
-                container.innerHTML = '<p style="color:#999; text-align:center; padding-top: 40px;">等待图表数据加载...</p>';
-                return;
-            }
+<script>
+(function () {
+  const chart = echarts.init(document.getElementById('chart'));
 
-            try {
-                // 解析 URL: 提取 #data=XXXXXX 部分
-                const params = new URLSearchParams(window.location.hash.substring(1));
-                const base64Str = params.get('data');
-                
-                if (!base64Str) return;
+  function render() {
+    try {
+      const params = new URLSearchParams(location.hash.slice(1));
+      const b64 = params.get('data');
+      if (!b64) return;
 
-                // Base64 解码 (处理中文需结合 decodeURIComponent)
-                const jsonStr = decodeURIComponent(atob(base64Str));
-                const chartOption = JSON.parse(jsonStr);
+      // ✅ 关键：还原 Python 侧的 encodeURIComponent
+      const jsonStr = decodeURIComponent(b64);
+      const option = JSON.parse(jsonStr);
 
-                // 初始化 ECharts 并注入配置
-                const myChart = echarts.init(container);
-                myChart.setOption(chartOption);
+      chart.setOption(option);
+      window.addEventListener('resize', () => chart.resize());
+    } catch (e) {
+      document.body.innerHTML =
+        '<pre style="color:red;padding:20px;">' +
+        '图表渲染失败：\n' + e.message + '</pre>';
+      console.error(e);
+    }
+  }
 
-                // 自适应窗口大小
-                window.addEventListener('resize', () => myChart.resize());
-            } catch (e) {
-                container.innerHTML = `<p style="color:red; padding: 20px;">图表渲染失败：${e.message}</p>`;
-                console.error("渲染错误:", e);
-            }
-        }
-
-        // 初始加载执行一次
-        renderChart();
-    </script>
+  render();
+})();
+</script>
 </body>
 </html>
