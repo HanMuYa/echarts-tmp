@@ -1,0 +1,328 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>WPS ECharts 渲染器</title>
+<script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
+<style>
+html, body {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: transparent;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+#chart {
+  width: 100%;
+  height: 100%;
+}
+#error-msg {
+  display: none;
+  padding: 20px;
+  color: #a80000;
+  font-size: 13px;
+  text-align: center;
+  word-break: break-all;
+}
+#loading {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  color: #999;
+  font-size: 13px;
+}
+</style>
+</head>
+<body>
+<div id="loading">加载图表中...</div>
+<div id="chart"></div>
+<div id="error-msg"></div>
+
+<script>
+(function () {
+  'use strict';
+
+  /* ===== 省份名称 → DataV GeoAtlas adcode 映射 ===== */
+  var PROVINCE_ADCODE = {
+    '北京': '110000', '北京市': '110000',
+    '天津': '120000', '天津市': '120000',
+    '河北': '130000', '河北省': '130000',
+    '山西': '140000', '山西省': '140000',
+    '内蒙古': '150000', '内蒙古自治区': '150000',
+    '辽宁': '210000', '辽宁省': '210000',
+    '吉林': '220000', '吉林省': '220000',
+    '黑龙江': '230000', '黑龙江省': '230000',
+    '上海': '310000', '上海市': '310000',
+    '江苏': '320000', '江苏省': '320000',
+    '浙江': '330000', '浙江省': '330000',
+    '安徽': '340000', '安徽省': '340000',
+    '福建': '350000', '福建省': '350000',
+    '江西': '360000', '江西省': '360000',
+    '山东': '370000', '山东省': '370000',
+    '河南': '410000', '河南省': '410000',
+    '湖北': '420000', '湖北省': '420000',
+    '湖南': '430000', '湖南省': '430000',
+    '广东': '440000', '广东省': '440000',
+    '广西': '450000', '广西壮族自治区': '450000',
+    '海南': '460000', '海南省': '460000',
+    '重庆': '500000', '重庆市': '500000',
+    '四川': '510000', '四川省': '510000',
+    '贵州': '520000', '贵州省': '520000',
+    '云南': '530000', '云南省': '530000',
+    '西藏': '540000', '西藏自治区': '540000',
+    '陕西': '610000', '陕西省': '610000',
+    '甘肃': '620000', '甘肃省': '620000',
+    '青海': '630000', '青海省': '630000',
+    '宁夏': '640000', '宁夏回族自治区': '640000',
+    '新疆': '650000', '新疆维吾尔自治区': '650000',
+    '台湾': '710000', '台湾省': '710000',
+    '香港': '810000', '香港特别行政区': '810000',
+    '澳门': '820000', '澳门特别行政区': '820000',
+    '中国': '100000', '全国': '100000'
+  };
+
+  /* ===== 根据省份名查 adcode（兼容 "贵州省"/"贵州"） ===== */
+  function lookupAdcode(name) {
+    var key = PROVINCE_ADCODE[name];
+    if (key) return key;
+    // 去掉后缀再试一次
+    var short = name.replace(/省|市|自治区|特别行政区|壮族自治区|回族自治区|维吾尔自治区$/, '');
+    return PROVINCE_ADCODE[short] || null;
+  }
+
+  function showError(msg) {
+    var loading = document.getElementById('loading');
+    var errorEl = document.getElementById('error-msg');
+    if (loading) loading.style.display = 'none';
+    errorEl.style.display = 'block';
+    errorEl.textContent = msg;
+  }
+
+  function hideLoading() {
+    var loading = document.getElementById('loading');
+    if (loading) loading.style.display = 'none';
+  }
+
+  /* ===== 从 xlsx CustomXMLPart 中查找 ECharts option ===== */
+  function findEchartXml(targetChartId) {
+    try {
+      var et = (typeof wps !== 'undefined') ? wps.EtApplication()
+             : (typeof Application !== 'undefined') ? Application
+             : null;
+      if (!et || !et.ActiveWorkbook) {
+        showError('未检测到 WPS 环境，请在内置 WebShape 中运行');
+        return null;
+      }
+
+      var parts = et.ActiveWorkbook.CustomXMLParts;
+      if (!parts || parts.Count === 0) {
+        showError('当前工作簿中没有 CustomXMLPart（请先在 Py-Excel 面板中调用 save_echart_option）');
+        return null;
+      }
+
+      var matches = [];
+
+      for (var i = 1; i <= parts.Count; i++) {
+        var xml = parts.Item(i).XML;
+        if (!xml) continue;
+
+        var idMatch = xml.match(/<echartOption\s+id="([^"]+)"(?:\s+ver="([^"]*)")?\s*>/);
+        if (!idMatch) continue;
+
+        var xmlId = idMatch[1];
+        if (targetChartId && xmlId !== targetChartId) continue;
+
+        var dataMatch = xml.match(/<data>\s*<!\[CDATA\[([\s\S]*?)\]\]>\s*<\/data>/);
+        if (!dataMatch) continue;
+
+        var b64 = dataMatch[1].trim();
+        matches.push({ chartId: xmlId, b64: b64 });
+      }
+
+      if (matches.length === 0) {
+        if (targetChartId) {
+          showError('未找到 chartId: ' + targetChartId +
+            '\n可用 chartId 请调 listEchartCharts() 查看');
+        } else {
+          showError('当前工作簿中没有 ECharts 数据');
+        }
+        return null;
+      }
+
+      return matches;
+    } catch (e) {
+      showError('读取 CustomXMLPart 出错: ' + e.message);
+      return null;
+    }
+  }
+
+  /* ===== base64 解码 → JSON ===== */
+  function decodeAndRender(b64) {
+    try {
+      var jsonStr = '';
+      if (typeof TextDecoder !== 'undefined') {
+        var bytes = Uint8Array.from(atob(b64), function (c) { return c.charCodeAt(0); });
+        jsonStr = new TextDecoder('utf-8').decode(bytes);
+      } else {
+        jsonStr = decodeURIComponent(
+          atob(b64).split('').map(function (c) {
+            return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2);
+          }).join('')
+        );
+      }
+
+      var option = JSON.parse(jsonStr);
+      return option;
+    } catch (e) {
+      showError('ECharts option 解析失败: ' + e.message);
+      return null;
+    }
+  }
+
+  /* ===== 收集 option 中所有地图名称 ===== */
+  function collectMapNames(option) {
+    var names = [];
+    // geo 组件
+    if (option.geo && option.geo.map) {
+      if (names.indexOf(option.geo.map) === -1) names.push(option.geo.map);
+    }
+    // series 中的 map 类型
+    if (option.series) {
+      option.series.forEach(function (s) {
+        if (s.type === 'map' && s.map) {
+          if (names.indexOf(s.map) === -1) names.push(s.map);
+        }
+      });
+    }
+    // 可能还有 geo 索引（geoIndex），需要用全局 geo 组件的 map
+    return names;
+  }
+
+  /* ===== 从 DataV GeoAtlas 拉取 GeoJSON 并注册到 ECharts ===== */
+  async function registerMaps(option, myChart) {
+    var mapNames = collectMapNames(option);
+    if (mapNames.length === 0) return;
+
+    var loaded = 0;
+    var errors = [];
+
+    for (var i = 0; i < mapNames.length; i++) {
+      var name = mapNames[i];
+      var adcode = lookupAdcode(name);
+      if (!adcode) {
+        console.warn('[echart_renderer] 未识别的地图名称: ' + name);
+        continue;
+      }
+
+      try {
+        var url = 'https://geo.datav.aliyun.com/areas_v3/bound/' + adcode + '_full.json';
+        var resp = await fetch(url);
+        if (!resp.ok) throw new Error('HTTP ' + resp.status);
+        var geojson = await resp.json();
+        echarts.registerMap(name, geojson);
+        loaded++;
+      } catch (e) {
+        errors.push('[echart_renderer] 加载地图 ' + name + ' 失败: ' + e.message);
+      }
+    }
+
+    if (errors.length > 0) {
+      console.warn(errors.join('\n'));
+    }
+
+    if (loaded > 0) {
+      // 更新 loading 提示
+      var loading = document.getElementById('loading');
+      if (loading) {
+        loading.textContent = '已加载 ' + loaded + ' 个地图，渲染中...';
+      }
+    }
+  }
+
+  /* ===== 渲染单个图表（支持地图自动注册） ===== */
+  async function renderChart(option) {
+    hideLoading();
+    var dom = document.getElementById('chart');
+    var myChart = echarts.init(dom);
+
+    // 检测地图类型，自动拉取 GeoJSON
+    await registerMaps(option, myChart);
+
+    window.addEventListener('resize', function () {
+      myChart.resize();
+    });
+
+    myChart.setOption(option);
+  }
+
+  /* ===== 多图表自动网格 ===== */
+  async function renderAllCharts(matches) {
+    hideLoading();
+
+    if (matches.length === 1) {
+      var option = decodeAndRender(matches[0].b64);
+      if (option) await renderChart(option);
+      return;
+    }
+
+    var dom = document.getElementById('chart');
+    dom.style.display = 'flex';
+    dom.style.flexWrap = 'wrap';
+
+    var charts = [];
+
+    for (var i = 0; i < matches.length; i++) {
+      var option = decodeAndRender(matches[i].b64);
+      if (!option) continue;
+
+      var wrapper = document.createElement('div');
+      wrapper.style.width = matches.length === 2 ? '50%' : '33.33%';
+      wrapper.style.height = matches.length <= 2 ? '100%' : '50%';
+      wrapper.style.minWidth = '300px';
+      wrapper.style.minHeight = '250px';
+      dom.appendChild(wrapper);
+
+      var instance = echarts.init(wrapper);
+      await registerMaps(option, instance);
+      instance.setOption(option);
+      charts.push(instance);
+    }
+
+    window.addEventListener('resize', function () {
+      charts.forEach(function (c) { c.resize(); });
+    });
+  }
+
+  /* ===== 入口 ===== */
+  async function init() {
+    var params = new URLSearchParams(location.search);
+    var targetChartId = params.get('chartId') || null;
+
+    var matches = findEchartXml(targetChartId);
+    if (!matches) return;
+
+    if (matches.length === 0) {
+      showError('未找到 ECharts 配置数据');
+      return;
+    }
+
+    if (matches.length === 1) {
+      var option = decodeAndRender(matches[0].b64);
+      if (option) await renderChart(option);
+    } else {
+      await renderAllCharts(matches);
+    }
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init);
+  } else {
+    init();
+  }
+})();
+</script>
+</body>
+</html>
