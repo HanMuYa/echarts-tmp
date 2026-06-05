@@ -1,0 +1,651 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>小猿 AI 助手 - 极客增强版</title>
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/vs2015.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+	<script src="https://appsforoffice.microsoft.com/lib/1/hosted/office.js"></script>
+	<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/layui/2.9.0/css/layui.css">
+	<script src="https://cdnjs.cloudflare.com/ajax/libs/layui/2.9.0/layui.js"></script>
+    <style>
+        :root {
+            --primary-color: #387A26;
+            --bg-gradient: linear-gradient(135deg, #f1f5f9 0%, #e2e8f0 100%);
+            --glass-border: rgba(0, 0, 0, 0.08);
+            --code-bg: #1e1e1e; /* 纯正深色背景，确保对比度 */
+        }
+
+        body {
+            margin: 0; padding: 10px; height: 100vh;
+            font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+            background: var(--bg-gradient); color: #1e293b;
+            display: flex; flex-direction: column; overflow: hidden; box-sizing: border-box;
+        }
+		
+		.tool-btn.btn-save { background: #1d6f42; color: white; border: none; } /* Excel 绿色 */
+
+        /* 顶部导航 */
+        .toolbar { display: flex; justify-content: space-between; align-items: center; padding: 5px 10px; margin-bottom: 8px; }
+        .tool-btn {
+            background: #fff; border: 1px solid var(--glass-border);
+            padding: 5px 12px; border-radius: 6px; cursor: pointer; font-size: 0.75rem; transition: 0.2s;
+        }
+        .btn-primary { background: var(--primary-color); color: white; border: none; }
+
+        /* 聊天区 */
+        .chat-container { flex: 1; background: rgba(255, 255, 255, 0.7); backdrop-filter: blur(20px); border-radius: 12px; border: 1px solid var(--glass-border); display: flex; flex-direction: column; overflow: hidden; }
+        #chat-box { flex: 1; padding: 20px; overflow-y: auto; display: flex; flex-direction: column; gap: 24px; }
+
+        /* 气泡样式 */
+        .msg { width: calc(100% - 40px); max-width: calc(100% - 40px); padding: 14px 18px; border-radius: 12px; font-size: 0.95rem; line-height: 1.6; position: relative; animation: fadeIn 0.3s ease; }
+        .user-msg { border-bottom-left-radius: 2px; align-self: flex-start; background: var(--primary-color); color: white; }
+        .ai-msg { align-self: flex-start; background: #ffffff; border: 1px solid var(--glass-border); border-top-left-radius: 2px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); }
+
+        /* 内容折叠 */
+        .content { overflow: hidden; transition: max-height 0.3s ease; }
+        .content.collapsed { max-height: 150px; mask-image: linear-gradient(to bottom, black 40%, transparent 100%); }
+
+        /* 底部按钮行 */
+        .msg-ops { display: flex; gap: 15px; margin-top: 12px; border-top: 1px solid rgba(0,0,0,0.06); padding-top: 10px; font-size: 11px; align-items: center; }
+        .user-msg .msg-ops { border-top-color: rgba(255,255,255,0.2); }
+        .op-btn { cursor: pointer; color: var(--primary-color); font-weight: 600; }
+        .user-msg .op-btn { color: #fff; }
+
+        /* 代码框增强结构 */
+        .code-container {
+            background: var(--code-bg); border-radius: 8px; margin: 15px 0;
+            overflow: hidden; border: 1px solid #000; box-shadow: 0 0px 0px rgba(0,0,0,0.2);
+        }
+        .code-header {
+            display: flex; justify-content: space-between; align-items: center;
+            padding: 8px 14px; background: #2d2d2d;
+            border-bottom: 1px solid #111;
+        }
+        .code-lang { color: #858585; font-family: 'Consolas', monospace; font-size: 11px; font-weight: bold; text-transform: uppercase; }
+        .code-btns { display: flex; gap: 8px; }
+        .code-action { background: #3e3e3e; border: none; color: #ccc; font-size: 10px; padding: 3px 10px; border-radius: 4px; cursor: pointer; }
+        .code-action:hover { background: #505050; color: #fff; }
+
+        /* 代码滚动条美化：隐藏轨道，仅保留滑块 */
+        pre { 
+            margin: 0; padding: 12px 0; overflow: auto; max-height: 450px; 
+            scrollbar-width: thin; scrollbar-color: rgba(255,255,255,0.2) transparent; 
+        }
+
+        /* Webkit内核滚动条 */
+        pre::-webkit-scrollbar { width: 6px; height: 6px; }
+        pre::-webkit-scrollbar-track { background: transparent; } 
+        pre::-webkit-scrollbar-thumb { 
+            background: rgba(255,255,255,0); 
+            border-radius: 10px; 
+        }
+        pre:hover::-webkit-scrollbar-thumb { 
+            background: rgba(255,255,255,0.2); 
+        }
+        pre::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.4); }
+
+        /* 修复后的代码表格布局 */
+        .code-table { display: table !important; width: 100%; border-collapse: collapse; counter-reset: line-num; }
+        .code-row { display: table-row; }
+        .code-num { 
+            display: table-cell; width: 45px; text-align: right; padding-right: 15px;
+            color: #858585; border-right: 1px solid #333; user-select: none;
+            font-size: 12px; font-family: monospace; background: #1e1e1e;
+        }
+        .code-num::before { counter-increment: line-num; content: counter(line-num); }
+        .code-content { 
+            display: table-cell; padding-left: 15px; white-space: pre; 
+            font-size: 13.5px; line-height: 1.5; color: #d4d4d4; font-family: 'Consolas', 'Monaco', monospace;
+        }
+
+        /* 输入区 */
+        .input-area { padding: 15px; background: #fff; border-top: 1px solid var(--glass-border); display: flex; gap: 10px; }
+        input { flex: 1; padding: 12px; border: 1px solid #e2e8f0; border-radius: 8px; outline: none; transition: 0.2s; }
+        input:focus { border-color: var(--primary-color); box-shadow: 0 0 0 3px rgba(67, 97, 238, 0.1); }
+        #send-btn { padding: 0 25px; background: var(--primary-color); color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: bold; }
+
+        #toast { position: fixed; top: 20px; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,0.8); color: white; padding: 8px 20px; border-radius: 20px; font-size: 0.8rem; display: none; z-index: 9999; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+    </style>
+</head>
+<body>
+
+    <div id="toast"></div>
+
+    <div class="toolbar">
+        <div style="font-weight: bold; color: var(--primary-color); font-size: 1rem;">小猿IT杂货铺 Py-Excel AI</div>
+        <div class="btn-group">
+            <!-- <button class="tool-btn btn-primary" onclick="startNewChat()">新对话</button> -->
+			<button class="tool-btn btn-primary" onclick="startNewChat()">新对话</button>
+			<button class="tool-btn btn-save" onclick="saveToExcel()">保存到文档</button>
+            <button class="tool-btn" onclick="exportHistory()">导出</button>
+            <button class="tool-btn" onclick="document.getElementById('importFile').click()">导入</button>
+            <input type="file" id="importFile" style="display:none" onchange="importHistory(this)">
+        </div>
+    </div>
+
+    <div class="chat-container">
+        <div id="chat-box"></div>
+        <div class="input-area">
+            <input type="text" id="user-input" placeholder="输入您的问题..." autocomplete="off" onkeypress="if(event.keyCode==13) sendMessage()">
+            <button id="send-btn" onclick="sendMessage()">发送</button>
+        </div>
+    </div>
+
+    <script>
+        const API_KEY = 'sk-225fdc3383bc4509a1224dcbe6564fba'; 
+        const API_URL = 'https://api.deepseek.com/chat/completions';
+        let STORAGE_KEY = 'CHAT_SESSION_LOG';
+
+        marked.setOptions({ breaks: true, gfm: true });
+
+        /* window.onload = () => {
+            const saved = localStorage.getItem(STORAGE_KEY);
+            if (saved) JSON.parse(saved).forEach(item => renderMessage(item.role, item.content, false));
+        }; */
+		
+		/* // 修改 window.onload：增加从 Excel 加载的逻辑
+window.onload = async () => {
+    // 确保 Office.js 初始化后再读取
+    Office.onReady(async (info) => {
+        if (info.host === Office.HostType.Excel) {
+            await loadFromExcel(); // 优先从 Excel 内部加载
+        }
+        
+        // 如果 Excel 里没数据，再看本地存储（可选，此处保持你原有逻辑）
+        const chatBox = document.getElementById('chat-box');
+        if (chatBox.children.length === 0) {
+            const saved = localStorage.getItem(STORAGE_KEY);
+            if (saved) JSON.parse(saved).forEach(item => renderMessage(item.role, item.content, false));
+        }
+    });
+}; */
+
+window.onload = async () => {
+    Office.onReady(async (info) => {
+        if (info.host === Office.HostType.Excel) {
+            // 1. 先根据文件名确定 KEY
+            await updateStorageKey();
+            // 2. 尝试从 Excel 内部 XML 加载
+            await loadFromExcel(); 
+            
+            // 3. 如果 XML 没数据，再根据动态生成的 KEY 从本地加载
+            const chatBox = document.getElementById('chat-box');
+            if (chatBox.children.length === 0) {
+                const saved = localStorage.getItem(STORAGE_KEY);
+                if (saved) JSON.parse(saved).forEach(item => renderMessage(item.role, item.content, false));
+            }
+        }
+    });
+
+    // --- 新增：退出（关闭插件/刷新）时自动清理本地缓存 ---
+    window.onbeforeunload = () => {
+        if (STORAGE_KEY) {
+            localStorage.removeItem(STORAGE_KEY);
+        }
+    };
+};
+
+        async function sendMessage(retryText = null, targetAiDiv = null) {
+            const inputEl = document.getElementById('user-input');
+            const text = retryText || inputEl.value.trim();
+            if (!text) return;
+
+            if (!retryText) { renderMessage('user', text); inputEl.value = ''; }
+
+            const sendBtn = document.getElementById('send-btn');
+            sendBtn.disabled = true;
+
+            const aiMsgDiv = targetAiDiv || renderMessage('ai', '思考中...', false);
+            const contentDiv = aiMsgDiv.querySelector('.content');
+            contentDiv.innerHTML = '<span style="color:#94a3b8">思考中...</span>';
+
+            try {
+                const history = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]');
+                const context = history.slice(-10).map(h => ({ role: h.role, content: h.content }));
+
+                /* const response = await fetch(API_URL, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${API_KEY}` },
+                    body: JSON.stringify({
+                        model: "deepseek-chat",
+                        messages: [{ role: "system", content: "你是一个专业的助手。" }, ...context, { role: "user", content: text }]
+                    })
+                });*/
+				
+				// console.log(context);
+				
+				const response = await fetch(API_URL, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${API_KEY}`
+                    },
+                    body: JSON.stringify({
+                        model: "deepseek-chat",
+                        messages: [
+                            { role: "system", content: "你是一个乐于助人的助手，我主要用你来完成office.js的自动化（这种需求中我会提及office.js，未提及的话就按正常对话）。在涉及到office.js的提问中，我希望你提供符合需求的javascript代码（一个函数和此函数的调用），不用提供扩展功能，不用考虑office.js引入，但是要确保代码功能准确，同时含中文注释，同时要有容错（在提供的代码里面加入try...catch...，如果出错的话通过layui弹窗显示错误，不用考虑layui引入)，例如“function example(){try{...}catch(e){layer.open(e.error)}}； example();”。" },
+                            { role: "user", content: text }
+                        ],
+                        stream: false
+                    })
+                });
+
+                const data = await response.json();
+                if (data.choices) {
+                    const result = data.choices[0].message.content;
+                    updateAiMessage(aiMsgDiv, result);
+                    
+                    let historyNow = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]');
+                    if (targetAiDiv) {
+                        historyNow[historyNow.length - 1].content = result;
+                    } else {
+                        historyNow.push({ role: 'ai', content: result });
+                    }
+                    localStorage.setItem(STORAGE_KEY, JSON.stringify(historyNow));
+					await saveToExcel();
+                }
+            } catch (e) {
+                showToast("连接失败");
+            } finally {
+                sendBtn.disabled = false;
+            }
+        }
+
+        function renderMessage(role, content, shouldSave = true) {
+            const box = document.getElementById('chat-box');
+            const div = document.createElement('div');
+            div.className = `msg ${role}-msg`;
+            
+            const contentDiv = document.createElement('div');
+            contentDiv.className = 'content';
+            contentDiv.innerHTML = role === 'user' ? content : marked.parse(content);
+            div.appendChild(contentDiv);
+
+            const ops = document.createElement('div');
+            ops.className = 'msg-ops';
+            
+            ops.appendChild(createOp('复制', () => copyToClipboard(content, ops.children[0])));
+            
+            ops.appendChild(createOp('重新生成', () => {
+                const history = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]');
+                const userMsg = role === 'user' ? content : history[history.length-2]?.content;
+                const target = role === 'ai' ? div : div.nextElementSibling;
+                if (userMsg) sendMessage(userMsg, target);
+            }));
+			
+			ops.appendChild(createOp('删除', (ops) => {
+				document.getElementById("chat-box");
+				const children = Array.from(document.getElementById("chat-box").children);
+				const index = children.indexOf(div);
+				
+				layui.use('layer', function() {
+					var layer = layui.layer;
+
+					layer.confirm('确定要删除这组对话吗？<br><small style="color:#999">删除后将同步更新本地缓存</small>', {
+						icon: 3,
+						title: '删除确认',
+						anim: 0, // 平滑动画
+						btn: ['确定', '取消']
+					}, function(confirmIndex){
+						deletePairByIndex(index);
+						await saveToExcel();
+					})
+				});
+			}));
+
+            if (role === 'ai') {
+                const fold = createOp('折叠内容', () => {
+                    const isCol = contentDiv.classList.toggle('collapsed');
+                    fold.innerText = isCol ? '展开全文' : '折叠内容';
+                });
+                ops.appendChild(fold);
+            }
+
+            div.appendChild(ops);
+            box.appendChild(div);
+            box.scrollTop = box.scrollHeight;
+            
+            if (role === 'ai') processCodeBlocks1(div);
+            if (shouldSave) saveToLocal(role, content);
+            return div;
+        }
+
+        function createOp(text, fn) {
+            const span = document.createElement('span');
+            span.className = 'op-btn';
+            span.innerText = text;
+            span.onclick = fn;
+            return span;
+        }
+
+        function updateAiMessage(div, content) {
+            const contentDiv = div.querySelector('.content');
+            contentDiv.innerHTML = marked.parse(content);
+            processCodeBlocks1(div);
+        }
+		
+		function processCodeBlocks1(div) {
+    div.querySelectorAll('pre').forEach(pre => {
+        const codeEl = pre.querySelector('code');
+        if(!codeEl) return;
+
+        const langMatch = codeEl.className.match(/language-(\w+)/);
+        const lang = langMatch ? langMatch[1] : 'code';
+        const rawCode = codeEl.innerText.replace(/\n$/, '');
+        
+        const highlighted = hljs.highlightAuto(rawCode).value;
+        const lines = highlighted.split('\n');
+        
+        let tableRows = lines.map(line => {
+            return `<div class="code-row">
+                        <div class="code-num"></div>
+                        <div class="code-content">${line || ' '}</div>
+                    </div>`;
+        }).join('');
+
+        const container = document.createElement('div');
+        container.className = 'code-container';
+        
+        // 判断是否为 javascript 语言，增加运行按钮
+        const runBtnHtml = (lang.toLowerCase() === 'javascript' || lang.toLowerCase() === 'js') 
+            ? '<button class="code-action run-btn" style="background:#387A26; color:white;">运行</button>' 
+            : '';
+
+        container.innerHTML = `
+            <div class="code-header">
+                <span class="code-lang">${lang}</span>
+                <div class="code-btns">
+                    ${runBtnHtml}
+                    <button class="code-action dl-btn">下载</button>
+                    <button class="code-action cp-btn">复制</button>
+                </div>
+            </div>
+        `;
+
+        const newPre = document.createElement('pre');
+        newPre.innerHTML = `<div class="code-table">${tableRows}</div>`;
+        container.appendChild(newPre);
+        pre.parentNode.replaceChild(container, pre);
+
+        // 绑定运行按钮逻辑
+        const runBtn = container.querySelector('.run-btn');
+        if(runBtn) {
+            runBtn.onclick = () => {
+                layui.use('layer', function(){
+                    var layer = layui.layer;
+                    layer.confirm('确定要在当前 Excel 运行这段 JS 代码吗？', {icon: 3, title:'提示'}, function(index){
+                        executeOfficeJs(rawCode);
+                        layer.close(index);
+                    });
+                });
+            };
+        }
+
+        container.querySelector('.cp-btn').onclick = () => copyToClipboard(rawCode, container.querySelector('.cp-btn'));
+        container.querySelector('.dl-btn').onclick = () => {
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(new Blob([rawCode], {type: 'text/plain'}));
+            a.download = `file.${lang}`; a.click();
+        };
+    });
+}
+
+        // --- 核心修复函数：processCodeBlocks ---
+        function processCodeBlocks(div) {
+            div.querySelectorAll('pre').forEach(pre => {
+                const codeEl = pre.querySelector('code');
+                if(!codeEl) return;
+
+                const langMatch = codeEl.className.match(/language-(\w+)/);
+                const lang = langMatch ? langMatch[1] : 'code';
+                const rawCode = codeEl.innerText.replace(/\n$/, ''); // 移除末尾换行符
+                
+                // 执行高亮
+                const highlighted = hljs.highlightAuto(rawCode).value;
+                
+                // 按换行符切分高亮后的代码
+                const lines = highlighted.split('\n');
+                
+                // 构建表格结构的 HTML (解决行号错位)
+                let tableRows = lines.map(line => {
+                    return `<div class="code-row">
+                                <div class="code-num"></div>
+                                <div class="code-content">${line || ' '}</div>
+                            </div>`;
+                }).join('');
+
+                const container = document.createElement('div');
+                container.className = 'code-container';
+                container.innerHTML = `
+                    <div class="code-header">
+                        <span class="code-lang">${lang}</span>
+                        <div class="code-btns">
+                            <button class="code-action dl-btn">下载</button>
+                            <button class="code-action cp-btn">复制</button>
+                        </div>
+                    </div>
+                `;
+
+                // 组装新结构并替换旧的 pre
+                const newPre = document.createElement('pre');
+                newPre.innerHTML = `<div class="code-table">${tableRows}</div>`;
+                
+                container.appendChild(newPre);
+                pre.parentNode.replaceChild(container, pre);
+
+                // 绑定按钮事件
+                container.querySelector('.cp-btn').onclick = () => copyToClipboard(rawCode, container.querySelector('.cp-btn'));
+                container.querySelector('.dl-btn').onclick = () => {
+                    const a = document.createElement('a');
+                    a.href = URL.createObjectURL(new Blob([rawCode], {type: 'text/plain'}));
+                    a.download = `file.${lang}`; a.click();
+                };
+            });
+        }
+
+        /*function saveToLocal(role, content) {
+            const history = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]');
+            history.push({ role, content });
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(history));
+        }*/
+		
+		function saveToLocal(role, content) {
+    // 确保 STORAGE_KEY 已经根据文件名更新
+    const history = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]');
+    history.push({ role, content });
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(history));
+}
+
+        function copyToClipboard(text, el) {
+            navigator.clipboard.writeText(text).then(() => {
+                const old = el.innerText;
+                el.innerText = '√ 已复制';
+                setTimeout(() => el.innerText = old, 1500);
+            });
+        }
+
+        function showToast(msg) {
+            const t = document.getElementById('toast');
+            t.innerText = msg; t.style.display = 'block';
+            setTimeout(() => t.style.display = 'none', 2000);
+        }
+
+        /* function startNewChat() {
+            if (confirm("清空对话并开启新对话？")) { localStorage.removeItem(STORAGE_KEY); location.reload(); }
+        } */
+		
+		/* function startNewChat() {
+    layui.use('layer', function(){
+        var layer = layui.layer;
+        layer.confirm('确定要清空对话并开启新对话吗？', {
+            icon: 3, 
+            title: '提示',
+            btn: ['确定', '取消'] // 按钮
+        }, function(index){
+            // 点击确定的回调
+            localStorage.removeItem(STORAGE_KEY); 
+            location.reload();
+            layer.close(index);
+        });
+    }); */
+	
+	function startNewChat() {
+    layui.use('layer', function(){
+        var layer = layui.layer;
+        layer.confirm('确定要清空当前文件的对话历史吗？', {
+            icon: 3, 
+            title: '提示',
+            btn: ['确定', '取消']
+        }, function(index){
+            // 使用当前的动态 KEY 进行清理
+            localStorage.removeItem(STORAGE_KEY); 
+            location.reload();
+            layer.close(index);
+        });
+    });
+};
+	
+	// 获取当前 Excel 文件名并设置 KEY 的函数
+async function updateStorageKey() {
+    await Excel.run(async (context) => {
+        context.workbook.load("name");
+        await context.sync();
+        // 使用文件名作为唯一标识，并增加前缀防止冲突
+        STORAGE_KEY = "CHAT_LOG_" + context.workbook.name;
+        // console.log("当前存储 KEY:", STORAGE_KEY);
+    }).catch(() => {
+        STORAGE_KEY = 'CHAT_LOG_UNSAVED_BOOK'; // 尚未保存的文件
+    });
+};
+
+        function exportHistory() {
+            const data = localStorage.getItem(STORAGE_KEY);
+            if (!data) return;
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(new Blob([data], { type: 'application/json' }));
+            a.download = `chat-log.json`; a.click();
+        }
+
+        function importHistory(input) {
+            const file = input.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = (e) => { localStorage.setItem(STORAGE_KEY, e.target.result); location.reload(); };
+            reader.readAsText(file);
+        }
+		
+		function executeOfficeJs(code) {
+    // 使用 Function 构造函数创建独立作用域
+    // 运行后，由于没有将函数挂载到 window 对象，执行完毕即被回收
+    try {
+        const runner = new Function('Excel', 'Office', `
+            "use strict";
+            try {
+                ${code}
+            } catch (e) {
+                console.error("执行代码时出错:", e);
+                layui.use('layer', function(){ layui.layer.msg('执行出错: ' + e.message); });
+            }
+        `);
+        // 传入全局变量供代码使用
+        runner(typeof Excel !== 'undefined' ? Excel : null, typeof Office !== 'undefined' ? Office : null);
+    } catch (err) {
+        layui.use('layer', function(){ layui.layer.msg('解析代码失败: ' + err.message); });
+    }
+}
+
+// --- 新增功能：保存对话历史到 Excel 内部 XML ---
+async function saveToExcel() {
+    const data = localStorage.getItem(STORAGE_KEY);
+    if (!data) return showToast("没有可保存的对话");
+
+    await Excel.run(async (context) => {
+        // 查找是否已有旧的保存数据，有则删除
+        const parts = context.workbook.customXmlParts.getByNamespace("http://xiaoyuan.pyexcel.chat");
+        parts.load("items");
+        await context.sync();
+
+        for (let i = 0; i < parts.items.length; i++) {
+            parts.items[i].delete();
+        }
+
+        // 将对话历史包装在 XML 中
+        const xmlContent = `<ChatHistory xmlns="http://xiaoyuan.pyexcel.chat"><Data>${btoa(unescape(encodeURIComponent(data)))}</Data></ChatHistory>`;
+        context.workbook.customXmlParts.add(xmlContent);
+
+        await context.sync();
+        layui.use('layer', function(){ layui.layer.msg('已成功保存到 Excel 内部'); });
+    }).catch(err => {
+        console.error(err);
+        showToast("保存失败");
+    });
+}
+
+// --- 新增功能：从 Excel 内部 XML 加载对话 ---
+async function loadFromExcel() {
+    await Excel.run(async (context) => {
+        const parts = context.workbook.customXmlParts.getByNamespace("http://xiaoyuan.pyexcel.chat");
+        parts.load("items");
+        await context.sync();
+
+        if (parts.items.length > 0) {
+            const xmlPart = parts.items[0];
+            const xmlField = xmlPart.getXml();
+            await context.sync();
+
+            // 解析 XML 获取 Data 节点内容
+            const parser = new DOMParser();
+            const xmlDoc = parser.parseFromString(xmlField.value, "text/xml");
+            const base64Data = xmlDoc.getElementsByTagName("Data")[0].childNodes[0].nodeValue;
+            const decodedData = decodeURIComponent(escape(atob(base64Data)));
+
+            if (decodedData) {
+                // 清空当前界面并重新渲染
+                document.getElementById('chat-box').innerHTML = '';
+                const history = JSON.parse(decodedData);
+                history.forEach(item => renderMessage(item.role, item.content, false));
+                // 同时同步到本地 localStorage 保证刷新后还在
+                localStorage.setItem(STORAGE_KEY, decodedData);
+            }
+        }
+    }).catch(err => console.log("Excel 内无保存数据"));
+}
+
+// 修改后的删除函数
+async function deletePairByIndex(index) {
+    let history = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]');
+    if (index < 0 || index >= history.length) return;
+
+    const item = history[index];
+
+    if (item.role === 'user') {
+        history.splice(index, 2);
+    } else if (item.role === 'ai') {
+        const startIndex = Math.max(0, index - 1);
+        history.splice(startIndex, 2);
+    }
+
+    // 1. 更新本地存储
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(history));
+    
+    // 2. 关键：同步更新 Excel 文档内部的数据（必须同步，否则刷新后会复活）
+    // 我们需要确保 saveToExcel 执行完毕后再刷新
+    if (typeof saveToExcel === "function") {
+        try {
+            await saveToExcel(); // 假设你的 saveToExcel 已经是 async 的
+            console.log("Excel 内部同步成功");
+        } catch (e) {
+            console.error("同步 Excel 失败", e);
+        }
+    }
+
+    // 3. 刷新界面
+    location.reload(); 
+}
+    </script>
+</body>
+</html>

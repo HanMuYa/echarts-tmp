@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>WPS 图表渲染器</title>
+<script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
+<style>
+html, body { margin:0; padding:0; width:100%; height:100%; overflow:hidden; background:transparent; }
+#chart { width:100%; height:100%; }
+</style>
+</head>
+<body>
+<div id="chart"></div>
+
+<script>
+    const path = Application.ActiveWorkbook.FullName;
+    Application.ActiveWorkbook.ActiveSheet.Range("A2").Value2 = 456;
+    alert(path); 
+</script>
+</body>
+</html>

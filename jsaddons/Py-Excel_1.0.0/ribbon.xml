@@ -1,0 +1,12 @@
+<customUI xmlns="http://schemas.microsoft.com/office/2006/01/customui" onLoad="OnAddinLoad">
+    <ribbon startFromScratch="false">
+        <tabs>
+            <tab id="wpsAddinTab1" label="我的插件">
+				<group id="btnDemoGroup" label="group">
+					<button id="py" label="python notebook" onAction="OnAction" enabled="true" getImage="GetImage" getVisible="OnGetVisible" size="large"/>
+                    <button id="func" label="python function" onAction="OnAction" enabled="true" getImage="GetImage" getVisible="OnGetVisible" size="large"/>
+				</group>
+            </tab>
+        </tabs>
+    </ribbon>
+</customUI>

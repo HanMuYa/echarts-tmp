@@ -1,0 +1,1275 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>Gemini Notebook Pro - PDF Export Edition</title>
+    <script src="https://cdn.jsdelivr.net/npm/jquery@3.7.1/dist/jquery.min.js"></script>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/editor.md@1.5.0/css/editormd.min.css" />
+    <script src="https://cdn.jsdelivr.net/npm/editor.md@1.5.0/editormd.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/pyodide/v0.29.3/full/pyodide.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.7/ace.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.7/ext-language_tools.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" />
+    <script src="https://cdn.plot.ly/plotly-2.30.0.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/vega@5"></script>
+    <script src="https://cdn.jsdelivr.net/npm/vega-lite@5"></script>
+    <script src="https://cdn.jsdelivr.net/npm/vega-embed@6"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.1.6/purify.min.js"></script>
+
+    <style>
+        :root {
+            --bg: #ffffff; --secondary-bg: #f8f9fa; --primary-blue: #1a73e8;
+            --border: #dee2e6; --input-max-width: 100vw; --radius: 8px;
+            --green: #107c10; --green-dark: #0a5a0a; --green-light: #e6f4ea;
+        }
+        body { margin: 0; background: var(--bg); font-family: 'Segoe UI', sans-serif; height: 100vh; overflow: hidden; display: flex; flex-direction: column; }
+        #scroll-container { flex: 1; overflow-y: auto; scroll-behavior: smooth; position: relative; }
+        .content-limit { width: 100%; max-width: var(--input-max-width); margin: 0 0; position: relative; padding: 0 0; min-height: 100%; }
+
+        .message-wrapper { width: 100%; display: flex; justify-content: center; position: relative; margin-bottom: 0; }
+        .message-container { width: 100%; position: relative; }
+        .output-card { background: #fff; border: 1px solid var(--border); border-radius: var(--radius); padding: 18px 24px; min-height: 24px; box-shadow: 0 1px 2px rgba(0,0,0,0.05); }
+        .render-content { width: 100%; overflow: hidden; }
+        pre { margin: 10px 0; font-family: 'Consolas', monospace; font-size: 13px; white-space: pre-wrap; background: #f8f9fa; padding: 12px; border: 1px solid #eee; border-radius: 4px; }
+
+        .cell-editor-box { width: 100%; margin: 15px 0; display: none; box-sizing: border-box; }
+        .dynamic-input-card { background: #f0f4f9; border: 2px solid var(--primary-blue); border-radius: var(--radius); overflow: hidden; box-shadow: 0 4px 20px rgba(0,0,0,0.15); }
+        .toolbar { display: flex; justify-content: space-between; align-items: center; padding: 10px 16px; background: #fff; border-top: 1px solid #eee; }
+
+        .message-actions { position: absolute; right: 10px; top: 10px; display: flex; gap: 6px; opacity: 0; transition: 0.2s; z-index: 20; }
+        .message-wrapper:hover .message-actions { opacity: 1; }
+        .control-btn { width: 32px; height: 32px; border-radius: 6px; border: 1px solid var(--border); cursor: pointer; display: flex; align-items: center; justify-content: center; transition: 0.2s; font-size: 13px; background: rgba(255,255,255,0.9); color: #5f6368; outline: none; }
+        .control-btn:hover { background: #f1f3f4; color: var(--primary-blue); border-color: var(--primary-blue); }
+        .control-btn.send-primary { background: var(--primary-blue); color: white; border: none; }
+
+        .cell-divider { width: 100%; display: flex; justify-content: center; align-items: center; height: 4px; position: relative; cursor: pointer; transition: height 0.2s ease-in-out; margin: 2px 0; }
+        .cell-divider:hover { height: 30px; }
+        .cell-divider::before { content: ""; position: absolute; width: 100%; height: 2px; background: var(--primary-blue); opacity: 0; transition: 0.15s; }
+        .insert-btn { position: relative; z-index: 10; width: 26px; height: 26px; border-radius: 50%; background: var(--primary-blue); color: white; border: none; display: flex; align-items: center; justify-content: center; font-size: 12px; opacity: 0; transition: 0.15s; transform: scale(0.6); }
+        .cell-divider:hover::before, .cell-divider:hover .insert-btn { opacity: 1; transform: scale(1); }
+
+        .sidebar-controls { position: fixed; right: 20px; top: 50%; transform: translateY(-50%); display: flex; flex-direction: column; gap: 15px; z-index: 1000; }
+        .sidebar-btn { width: 42px; height: 42px; border-radius: 50%; background: white; border: 1px solid var(--border); box-shadow: 0 2px 8px rgba(0,0,0,0.1); cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 16px; color: #5f6368; transition: 0.2s; }
+        .sidebar-btn:hover { transform: translateY(-2px); color: var(--primary-blue); border-color: var(--primary-blue); }
+
+        .status-indicator { display: flex; align-items: center; gap: 8px; font-size: 11px; font-weight: bold; }
+        .dot { width: 10px; height: 10px; border-radius: 50%; background: #9aa0a6; }
+        .dot.ready { background: #34a853; box-shadow: 0 0 5px #34a853; animation: soft-breathe 2s infinite ease-in-out; }
+        .dot.busy { background: var(--primary-blue); animation: breathe 1s infinite ease-in-out; }
+        @keyframes breathe { 0%, 100% { opacity: 0.4; transform: scale(0.9); } 50% { opacity: 1; transform: scale(1.1); } }
+        @keyframes soft-breathe { 0%, 100% { opacity: 0.7; } 50% { opacity: 1; } }
+
+        .render-content div, .render-content svg, .render-content canvas { max-width: 100% !important; }
+        div[id^="matplotlib_"], .chart-container, .js-plotly-plot { width: 100% !important; height: auto !important; }
+
+        #chat-flow { margin: 10px 10px; }
+
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #c8c6c4; border-radius: 3px; border: 2px solid var(--bg); background-clip: content-box; }
+        ::-webkit-scrollbar-thumb:hover { background-color: #8a8886; }
+
+        /* ================================================================
+           WPS 函数面板 — 全屏覆盖
+        ================================================================ */
+        #wps-func-panel {
+            position: fixed; inset: 0; background: #fff;
+            z-index: 2000; display: none; flex-direction: column; overflow: hidden;
+        }
+        #wps-func-panel.open { display: flex; }
+
+        .func-panel-header {
+            display: flex; align-items: center; justify-content: space-between;
+            padding: 13px 16px; background: var(--green); color: white;
+            flex-shrink: 0; box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+        }
+        .func-panel-header-left { display: flex; align-items: center; gap: 9px; }
+        .func-panel-header-left h3 { margin: 0; font-size: 15px; font-weight: 600; }
+        .func-panel-badge-count {
+            background: rgba(255,255,255,0.25); color: white;
+            font-size: 11px; padding: 1px 8px; border-radius: 10px; font-weight: normal;
+        }
+        .func-panel-close-btn {
+            width: 32px; height: 32px; border-radius: 6px;
+            border: 1px solid rgba(255,255,255,0.35); background: transparent;
+            color: white; cursor: pointer; display: flex; align-items: center;
+            justify-content: center; font-size: 15px; transition: 0.15s;
+        }
+        .func-panel-close-btn:hover { background: rgba(255,255,255,0.2); }
+
+        .func-panel-search {
+            padding: 10px 12px; border-bottom: 1px solid var(--border);
+            flex-shrink: 0; background: #f8f9fa;
+        }
+        .func-panel-search-box {
+            display: flex; align-items: center; gap: 8px;
+            background: white; border: 1px solid var(--border);
+            border-radius: 20px; padding: 6px 12px; transition: 0.15s;
+        }
+        .func-panel-search-box:focus-within { border-color: var(--green); box-shadow: 0 0 0 2px rgba(16,124,16,0.12); }
+        .func-panel-search-box i { color: #aaa; font-size: 12px; }
+        .func-panel-search-box input { border: none; outline: none; flex: 1; font-size: 13px; background: transparent; }
+
+        #wps-func-list { flex: 1; overflow-y: auto; padding: 12px; }
+
+        .wps-func-empty {
+            display: flex; flex-direction: column; align-items: center;
+            justify-content: center; padding: 48px 20px; color: #bbb;
+            text-align: center; gap: 10px; font-size: 13px;
+        }
+        .wps-func-empty i { font-size: 32px; color: #ddd; }
+        .wps-func-empty small { color: #ccc; font-size: 11px; margin-top: 4px; }
+
+        .wps-func-item {
+            border: 1px solid var(--border); border-radius: 8px;
+            margin-bottom: 10px; overflow: hidden; transition: box-shadow 0.2s;
+        }
+        .wps-func-item:hover { box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+        .wps-func-item.expanded { border-color: #a5d6a7; box-shadow: 0 2px 12px rgba(16,124,16,0.12); }
+
+        .wps-func-item-header {
+            display: flex; align-items: center; gap: 8px;
+            padding: 10px 13px; background: #f8f9fa; cursor: pointer; user-select: none;
+        }
+        .wps-func-item-header:hover { background: var(--green-light); }
+        .wps-func-item.expanded .wps-func-item-header { background: var(--green-light); }
+
+        .wps-func-badge { background: var(--green); color: white; font-size: 9px; padding: 2px 7px; border-radius: 3px; flex-shrink: 0; font-family: sans-serif; letter-spacing: 0.3px; }
+        .wps-func-name { font-family: monospace; font-size: 14px; font-weight: 700; color: #1a1a1a; }
+        .wps-func-sig { font-family: monospace; font-size: 11px; color: #777; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .wps-func-chevron { color: #888; font-size: 11px; transition: transform 0.2s; flex-shrink: 0; }
+        .wps-func-item.expanded .wps-func-chevron { transform: rotate(180deg); color: var(--green); }
+
+        .wps-func-detail {
+            display: none; padding: 14px 14px 12px; border-top: 1px solid #e8f5e9; background: white;
+        }
+        .wps-func-item.expanded .wps-func-detail { display: block; }
+
+        .wps-func-formula {
+            font-family: monospace; font-size: 12px; background: #e8f5e9;
+            padding: 7px 11px; border-radius: 5px; margin-bottom: 10px;
+            color: var(--green); border: 1px solid #c8e6c9; word-break: break-all;
+            cursor: pointer; transition: background 0.15s;
+        }
+        .wps-func-formula:hover { background: #d4edda; }
+        .wps-func-formula-label { font-size: 10px; color: #999; margin-bottom: 3px; font-family: sans-serif; }
+
+        .wps-func-doc {
+            color: #444; line-height: 1.65; white-space: pre-wrap; font-size: 12.5px;
+            margin-top: 8px; border-left: 3px solid #e0e0e0; padding-left: 10px;
+        }
+        .wps-func-doc-empty { color: #bbb; font-style: italic; font-size: 12px; margin-top: 6px; }
+
+        .wps-func-params { margin-top: 10px; }
+        .wps-func-params-title {
+            font-size: 10px; font-weight: 700; color: #888;
+            text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 5px;
+        }
+        .wps-func-param-row {
+            display: flex; gap: 10px; padding: 4px 0;
+            border-bottom: 1px solid #f5f5f5; align-items: baseline;
+        }
+        .wps-func-param-row:last-child { border-bottom: none; }
+        .wps-func-param-name { font-family: monospace; color: #1a73e8; font-size: 12px; min-width: 90px; font-weight: 600; }
+        .wps-func-param-type { color: #888; font-size: 11px; font-family: monospace; min-width: 60px; }
+        .wps-func-param-default { color: #a0522d; font-size: 11px; font-family: monospace; }
+
+        .wps-func-actions { margin-top: 11px; display: flex; gap: 8px; }
+        .wps-func-copy-btn {
+            padding: 5px 13px; background: var(--green); color: white;
+            border: none; border-radius: 4px; font-size: 11px; cursor: pointer;
+            display: inline-flex; align-items: center; gap: 5px; transition: 0.15s;
+        }
+        .wps-func-copy-btn:hover { background: var(--green-dark); }
+
+        /* ================================================================
+           Jupyter 风格 Traceback
+        ================================================================ */
+        .jupyter-traceback {
+            background: #111; color: #f8f8f2;
+            font-family: 'Consolas', 'Courier New', monospace;
+            font-size: 12.5px; line-height: 1.65;
+            padding: 14px 16px; border-radius: 6px;
+            border-left: 4px solid #e74c3c;
+            overflow-x: auto; margin: 4px 0;
+        }
+        .tb-line { white-space: pre; display: block; }
+        .tb-header-line { color: #7f8c8d; }
+        .tb-file-line { color: #6ab0de; }
+        .tb-code-line { color: #f1c40f; }
+        .tb-caret-line { color: #e74c3c; font-weight: bold; }
+        .tb-error-type { color: #e74c3c; font-weight: bold; }
+        .tb-error-msg { color: #f39c12; }
+        .tb-plain-line { color: #ddd; }
+
+        /* ================================================================
+           Matplotlib 图表操作按钮
+        ================================================================ */
+        .mpl-fig-wrapper { margin: 8px 0; }
+        .mpl-fig-wrapper img { max-width: 100%; height: auto; display: block; border-radius: 4px; }
+        .mpl-actions { margin-top: 6px; display: flex; gap: 8px; flex-wrap: wrap; }
+        .mpl-insert-btn {
+            padding: 5px 13px; background: var(--green); color: white;
+            border: none; border-radius: 4px; font-size: 11px; cursor: pointer;
+            display: inline-flex; align-items: center; gap: 5px; transition: 0.15s;
+        }
+        .mpl-insert-btn:hover { background: var(--green-dark); }
+        .mpl-save-btn {
+            padding: 5px 13px; background: var(--primary-blue); color: white;
+            border: none; border-radius: 4px; font-size: 11px; cursor: pointer;
+            display: inline-flex; align-items: center; gap: 5px; transition: 0.15s;
+        }
+        .mpl-save-btn:hover { background: #1558b0; }
+		.mpl-toolbar { justify-content: center; text-align: center; }
+		.mpl-toolbar select { height: 38px; border-radius: 0.5rem; margin-left: 0.5rem; }
+		.mpl-actions { justify-content: center; }
+    </style>
+</head>
+<body>
+
+<div id="scroll-container">
+    <div class="sidebar-controls">
+        <button class="sidebar-btn" id="global-add-btn" title="在末尾插入新块"><i class="fa-solid fa-plus"></i></button>
+        <button class="sidebar-btn" id="global-clear-btn" title="清空所有缓存记录" style="color:#d93025;"><i class="fa-solid fa-trash-can"></i></button>
+        <button class="sidebar-btn" id="global-pdf-btn" title="导出为高清 PDF" style="color:#1a73e8;"><i class="fa-solid fa-file-pdf"></i></button>
+        <button class="sidebar-btn" id="global-wps-btn" title="查看已注册的 WPS 函数" style="color:#107c10;"><i class="fa-solid fa-table-cells"></i></button>
+    </div>
+
+    <!-- WPS 函数面板（全屏覆盖） -->
+    <div id="wps-func-panel">
+        <div class="func-panel-header">
+            <div class="func-panel-header-left">
+                <i class="fa-solid fa-table-cells" style="font-size:16px;"></i>
+                <h3>WPS 已注册函数</h3>
+                <span class="func-panel-badge-count" id="func-count-badge">0</span>
+            </div>
+            <button class="func-panel-close-btn" id="func-panel-close" title="关闭面板 (Esc)">
+                <i class="fa-solid fa-xmark"></i>
+            </button>
+        </div>
+        <div class="func-panel-search">
+            <div class="func-panel-search-box">
+                <i class="fa-solid fa-magnifying-glass"></i>
+                <input type="text" id="func-search-input" placeholder="搜索函数名称…" oninput="filterFuncs(this.value)">
+            </div>
+        </div>
+        <div id="wps-func-list">
+            <div class="wps-func-empty">
+                <i class="fa-solid fa-code"></i>
+                暂无注册函数
+                <small>在 Python 单元格中使用 @wps_py_func 装饰器注册函数</small>
+            </div>
+        </div>
+    </div>
+
+    <div class="content-limit">
+        <div id="chat-flow">
+            <div class="cell-divider" onclick="appendCell(this)" title="在此处插入块">
+                <button class="insert-btn"><i class="fa-solid fa-plus"></i></button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    let pyodide = null, cellCount = 0, isPyLoading = false;
+    let _wpsRegistryCache = {}; // 缓存已注册函数元数据，供自动补全使用
+
+    // =====================================================================
+    // 工具函数
+    // =====================================================================
+
+    function escH(s) {
+        return String(s)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;');
+    }
+
+    function sanitizeHTML(html) {
+        return html; // DOMPurify.sanitize(String(html));
+    }
+
+    // =====================================================================
+    // Jupyter 风格 Traceback 格式化
+    // =====================================================================
+    function formatJupyterTraceback(errMsg) {
+        const lines = String(errMsg).split('\n');
+        let html = '<div class="jupyter-traceback">';
+        for (let i = 0; i < lines.length; i++) {
+            const line = lines[i];
+            const esc = escH(line);
+            let cls = 'tb-plain-line';
+
+            if (i === 0 && line.startsWith('Traceback')) {
+                cls = 'tb-header-line';
+            } else if (line.match(/^\s+File\s+"[^"]+",\s+line\s+\d+/)) {
+                cls = 'tb-file-line';
+            } else if (line.match(/^\s*\^+$/) || line.match(/^\s+-->?\s+\d+\s+/)) {
+                cls = 'tb-caret-line';
+            } else if (line.match(/^\s{4,}/)) {
+                cls = 'tb-code-line';
+            } else if (line.match(/^During handling/)) {
+                cls = 'tb-header-line';
+            } else if (line.match(/^[A-Za-z][A-Za-z0-9_.]*(?:Error|Exception|Warning|Interrupt|Exit)(\s*:)/)) {
+                const m = line.match(/^([A-Za-z][A-Za-z0-9_.]*(?:Error|Exception|Warning|Interrupt|Exit))(\s*:)(.*)/s);
+                if (m) {
+                    html += `<span class="tb-line"><span class="tb-error-type">${escH(m[1])}</span><span class="tb-plain-line">${escH(m[2])}</span><span class="tb-error-msg">${escH(m[3])}</span></span>\n`;
+                    continue;
+                }
+            } else if (line.match(/^[A-Za-z][A-Za-z0-9_.]*(?:Error|Exception|Warning|Interrupt|Exit)$/)) {
+                cls = 'tb-error-type';
+            }
+
+            html += `<span class="tb-line ${cls}">${esc}</span>\n`;
+        }
+        html += '</div>';
+        return html;
+    }
+
+    // =====================================================================
+    // WPS 集成层
+    // =====================================================================
+
+    // 将 WPS 传入的单值嵌套数组解包：[[v]] → v, [v] → v
+    function unwrapWpsArg(a) {
+        while (Array.isArray(a) && a.length === 1) {
+            if (Array.isArray(a[0])) {
+                if (a[0].length === 1) { a = a[0][0]; continue; }
+                // [[v1, v2, ...]] → [v1, v2, ...]
+                a = a[0];
+            } else {
+                a = a[0];
+            }
+        }
+        return a;
+    }
+
+    function safeStringify(v) {
+        try { return JSON.stringify(v); } catch(e) { return '"#SERIALIZE_ERR"'; }
+    }
+
+    function doRegisterPYWPS() {
+        try {
+            if (typeof Application !== "undefined" && Application.AddCustomFunction) {
+                Application.AddCustomFunction("", "PYWPS", window.PYWPS_Bridge, {
+                    description: "调用通过 @wps_py_func 注册的 Python 函数",
+                    result: { type: "any[][]" },
+                    parameters: Array.from({length: 51}, (_, i) => ({
+                        name: i === 0 ? "funcName" : "a" + i,
+                        type: i === 0 ? "string" : "any[][]?",
+                        description: i === 0 ? "函数名" : ""
+                    }))
+                });
+                console.log("[WPS] PYWPS UDF 注册成功");
+            }
+        } catch(e) { console.error("[WPS] PYWPS 注册失败:", e); }
+    }
+
+    window.PYWPS_Bridge = function(funcName,
+        a1,  a2,  a3,  a4,  a5,  a6,  a7,  a8,  a9,  a10,
+        a11, a12, a13, a14, a15, a16, a17, a18, a19, a20,
+        a21, a22, a23, a24, a25, a26, a27, a28, a29, a30,
+        a31, a32, a33, a34, a35, a36, a37, a38, a39, a40,
+        a41, a42, a43, a44, a45, a46, a47, a48, a49, a50) {
+        if (!pyodide) return "#PY_LOADING";
+        const args = [a1,a2,a3,a4,a5,a6,a7,a8,a9,a10,
+                      a11,a12,a13,a14,a15,a16,a17,a18,a19,a20,
+                      a21,a22,a23,a24,a25,a26,a27,a28,a29,a30,
+                      a31,a32,a33,a34,a35,a36,a37,a38,a39,a40,
+                      a41,a42,a43,a44,a45,a46,a47,a48,a49,a50]
+            .filter(a => a !== undefined && a !== null);
+        for (let i = 0; i < args.length; i++) {
+            args[i] = unwrapWpsArg(args[i]);
+        }
+        try {
+            const argsJson = JSON.stringify(args);
+            const pyCode = `
+import __main__, json, inspect as _ins_
+_f_ = getattr(__main__, 'wps_registry', {}).get('${funcName.toUpperCase()}')
+if _f_:
+    try:
+        _prms_ = list(_ins_.signature(_f_).parameters.keys())
+        _a_ = json.loads(r'''${argsJson}''')[:len(_prms_)]
+        _r_ = _f_(*_a_)
+        # 优先检测 matplotlib Figure
+        try:
+            import matplotlib.figure as _mfig_, matplotlib.pyplot as _mplt_
+            import base64 as _b64_, io as _bio_
+            if isinstance(_r_, _mfig_.Figure):
+                _buf_ = _bio_.BytesIO()
+                _r_.savefig(_buf_, format='png', bbox_inches='tight', dpi=100)
+                _buf_.seek(0)
+                _img_ = _b64_.b64encode(_buf_.read()).decode()
+                _mplt_.close(_r_)
+                _out_ = json.dumps({'__type__': 'matplotlib_figure', 'data': 'data:image/png;base64,' + _img_})
+                _out_
+        except ImportError: pass
+        try:
+            import numpy as _np_
+            if isinstance(_r_, _np_.ndarray): _r_ = _r_.tolist()
+        except ImportError: pass
+        try:
+            import pandas as _pd_
+            if isinstance(_r_, _pd_.DataFrame): _r_ = _r_.values.tolist()
+            elif isinstance(_r_, _pd_.Series): _r_ = [[v] for v in _r_.tolist()]
+        except ImportError: pass
+        if isinstance(_r_, list) and _r_ and not isinstance(_r_[0], list):
+            _r_ = [[v] for v in _r_]
+        if _r_ is None: _r_ = ""
+        _out_ = json.dumps(_r_)
+    except Exception as _e_:
+        _out_ = json.dumps("#PY_ERR: " + str(_e_))
+else:
+    _out_ = json.dumps("#NAME?")
+_out_`;
+            const result = JSON.parse(pyodide.runPython(pyCode));
+            // 处理 matplotlib Figure 返回值：插入 WebShape
+            if (result && typeof result === 'object' && result.__type__ === 'matplotlib_figure') {
+                setTimeout(() => insertMplAsPicture(result.data), 100);
+                return [["[图表已插入到表格]"]];
+            }
+            return result;
+        } catch(e) {
+            return "#JS_ERR:" + e.message;
+        }
+    };
+
+    window.wps_js_setvalue = function(cellRef, valueJson) {
+        try {
+            const sheet = wps.EtApplication().ActiveSheet;
+            const range = sheet.Range(String(cellRef));
+            const value = JSON.parse(String(valueJson));
+            if (Array.isArray(value)) {
+                range.Value2 = (value.length > 0 && !Array.isArray(value[0]))
+                    ? value.map(v => [v]) : value;
+            } else {
+                range.Value2 = (value === null || value === undefined) ? "" : value;
+            }
+        } catch(e) { console.error("[WPS] setvalue 错误:", e); }
+    };
+
+    window.wps_js_getvalue = function(cellRef) {
+        try {
+            const sheet = wps.EtApplication().ActiveSheet;
+            return safeStringify(sheet.Range(String(cellRef)).Value2);
+        } catch(e) { return "null"; }
+    };
+
+    // Python wps.show_html(html) 的底层实现
+    // 关键发现：WPS WebShapes.Add 只接受 blob URL，javascript:/about:blank/data: 均被拒绝
+    // 正确流程：① 用 blob URL 创建 Shape（WPS 接受）→ ② Shape 初始化后 Navigate 注入内容
+    // Navigate 运行在 Shape 自身的浏览器上下文，不受跨进程限制
+    window.wps_js_show_html = function(htmlContent, leftStr, topStr, widthStr, heightStr) {
+        try {
+            const et = (typeof wps !== 'undefined') ? wps.EtApplication()
+                     : (typeof Application !== 'undefined') ? Application : null;
+            if (!et) return 'error:no_et_application';
+            const sheet = et.ActiveSheet;
+            const W = parseFloat(widthStr)  || 500;
+            const H = parseFloat(heightStr) || 350;
+            let L = 10, T = 10;
+            if (leftStr !== 'auto' && !isNaN(parseFloat(leftStr))) {
+                L = parseFloat(leftStr); T = parseFloat(topStr) || 10;
+            } else {
+                try { const c = sheet.ActiveCell; if (c) { L = c.Left || 10; T = c.Top || 10; } } catch(_) {}
+            }
+            const content = String(htmlContent);
+
+            // 第一步：用 blob URL 创建 WebShape（WPS 只接受此格式）
+            let ws;
+            try {
+                const initBlob = new Blob(['<html></html>'], { type: 'text/html' });
+                const initUrl = URL.createObjectURL(initBlob);
+                try {
+                    ws = sheet.WebShapes.Add(initUrl, L, T, W, H);
+                } catch(_) {
+                    ws = sheet.Shapes.AddWebShapeEx(initUrl, L, T, W, H);
+                }
+                URL.revokeObjectURL(initUrl);
+            } catch(e) {
+                return 'error:cannot_create_webshape:' + e.message;
+            }
+
+            // 第二步：等待 Shape 内嵌浏览器控件初始化，再注入 HTML 内容
+            const jsCode = 'void(document.open(),document.write(' + JSON.stringify(content) + '),document.close())';
+            let injected = false;
+
+            const tryInject = (attempt) => {
+                if (injected) return;
+                // 注入方式 A：Navigate 到 javascript: URL（Chromium-based 控件）
+                try { ws.Navigate('javascript:' + jsCode); injected = true; return; } catch(_) {}
+                // 注入方式 B：Document.Write（IE-based 控件）
+                try {
+                    const doc = ws.Document;
+                    if (doc) { doc.Open(); doc.Write(content); doc.Close(); injected = true; return; }
+                } catch(_) {}
+                // 注入方式 C：Navigate 到 data URL
+                try {
+                    ws.Navigate('data:text/html;charset=utf-8;base64,' + btoa(unescape(encodeURIComponent(content))));
+                    injected = true; return;
+                } catch(_) {}
+                // 最多重试 3 次，间隔 400ms
+                if (attempt < 3) setTimeout(() => tryInject(attempt + 1), 400);
+                else console.warn('[WPS] show_html: 内容注入全部失败（Shape 已插入但为空）');
+            };
+
+            setTimeout(() => tryInject(0), 350);
+            return 'ok'; // Shape 已创建成功，内容注入异步进行
+        } catch(e) {
+            return 'error:' + e.message;
+        }
+    };
+
+    // 将 matplotlib 图表以图片形式插入 WPS 表格
+    // 优先：剪贴板粘贴（原生图片）→ AddPicture 临时文件 → 降级 WebShape
+    function insertMplAsPicture(imgDataUrl) {
+        const width = 500, height = 350;
+        let left = 10, top = 10;
+        try {
+            const et = (typeof wps !== "undefined") ? wps.EtApplication()
+                     : (typeof Application !== "undefined") ? Application : null;
+            if (!et) { console.warn("[WPS] 无法访问 ET Application"); return; }
+            const sheet = et.ActiveSheet;
+            try {
+                const cell = sheet.ActiveCell;
+                if (cell) { left = cell.Left || left; top = cell.Top || top; }
+            } catch(_) {}
+
+            const shapes = sheet.Shapes;
+            shapes.AddPicture({
+                FileName: imgDataUrl,
+                LinkToFile: 0,
+                SaveWithDocument: -1,
+                Left: left,
+                Top: top,
+                Width: width,
+                Height: height
+            });
+        } catch(e) {
+            console.error("[WPS] insertMplAsPicture 错误:", e);
+        }
+    }
+
+    // =====================================================================
+    // 刷新 WPS 函数面板（带完整元数据）
+    // =====================================================================
+    async function refreshWPSPanel() {
+        const list = document.getElementById('wps-func-list');
+        if (!pyodide) {
+            list.innerHTML = '<div class="wps-func-empty"><i class="fa-solid fa-spinner fa-spin"></i><br>Python 尚未就绪</div>';
+            return;
+        }
+        try {
+            const raw = pyodide.runPython(`
+import __main__, json, inspect as _ins_
+_reg_ = getattr(__main__, 'wps_registry', {})
+_out_ = {}
+for _n_, _f_ in _reg_.items():
+    try:
+        _sig_obj_ = _ins_.signature(_f_)
+        _sig_ = str(_sig_obj_)
+        _doc_ = _ins_.getdoc(_f_) or ''
+        _prms_ = {}
+        for _pn_, _pv_ in _sig_obj_.parameters.items():
+            _prms_[_pn_] = {
+                'annotation': str(_pv_.annotation) if _pv_.annotation != _ins_.Parameter.empty else '',
+                'default': str(_pv_.default) if _pv_.default != _ins_.Parameter.empty else ''
+            }
+        _out_[_n_] = {'sig': _sig_, 'doc': _doc_, 'params': _prms_}
+    except Exception as _e_:
+        _out_[_n_] = {'sig': '(...)', 'doc': '', 'params': {}}
+json.dumps(_out_)
+`);
+            _wpsRegistryCache = JSON.parse(raw);
+            renderFuncPanel(_wpsRegistryCache, document.getElementById('func-search-input').value || '');
+        } catch(e) { console.error("[WPS] refreshWPSPanel 错误:", e); }
+    }
+
+    function renderFuncPanel(registry, filter) {
+        const list = document.getElementById('wps-func-list');
+        const q = (filter || '').toLowerCase();
+        const names = Object.keys(registry).filter(n => n.toLowerCase().includes(q));
+
+        document.getElementById('func-count-badge').textContent = Object.keys(registry).length;
+
+        if (names.length === 0) {
+            list.innerHTML = filter
+                ? `<div class="wps-func-empty"><i class="fa-solid fa-magnifying-glass"></i>没有匹配 "${escH(filter)}" 的函数</div>`
+                : `<div class="wps-func-empty"><i class="fa-solid fa-code"></i>暂无注册函数<small>在 Python 单元格中使用 @wps_py_func 装饰器注册函数</small></div>`;
+            return;
+        }
+
+        list.innerHTML = names.map(name => {
+            const info = registry[name];
+            const sig = info.sig || '(...)';
+            const doc = (info.doc || '').trim();
+            const params = info.params || {};
+            const paramKeys = Object.keys(params);
+            const formulaPlaceholders = paramKeys.length
+                ? ', ' + paramKeys.map(k => k.toUpperCase()).join(', ')
+                : '';
+            const paramRows = paramKeys.map(pname => {
+                const p = params[pname];
+                const typeStr = p.annotation ? escH(p.annotation) : '';
+                const defStr = p.default ? escH(p.default) : '';
+                return `<div class="wps-func-param-row">
+                    <span class="wps-func-param-name">${escH(pname)}</span>
+                    <span class="wps-func-param-type">${typeStr || '—'}</span>
+                    ${defStr ? `<span class="wps-func-param-default">= ${defStr}</span>` : ''}
+                </div>`;
+            }).join('');
+
+            return `<div class="wps-func-item" id="func-item-${name}">
+                <div class="wps-func-item-header" onclick="toggleFuncItem('${name}')">
+                    <span class="wps-func-badge">PYWPS</span>
+                    <span class="wps-func-name">${escH(name)}</span>
+                    <span class="wps-func-sig">${escH(sig)}</span>
+                    <i class="fa-solid fa-chevron-down wps-func-chevron"></i>
+                </div>
+                <div class="wps-func-detail">
+                    <div class="wps-func-formula-label"><i class="fa-solid fa-table-cells" style="margin-right:4px;"></i>WPS 公式（点击复制）</div>
+                    <div class="wps-func-formula" onclick="copyFormula('${name}')">=PYWPS("${escH(name)}"${escH(formulaPlaceholders)})</div>
+                    ${doc
+                        ? `<div class="wps-func-doc">${escH(doc)}</div>`
+                        : '<div class="wps-func-doc-empty">（未提供说明文档）</div>'
+                    }
+                    ${paramKeys.length > 0 ? `
+                    <div class="wps-func-params">
+                        <div class="wps-func-params-title">参数列表</div>
+                        ${paramRows}
+                    </div>` : ''}
+                    <div class="wps-func-actions">
+                        <button class="wps-func-copy-btn" id="copybtn-${name}" onclick="copyFormula('${name}')">
+                            <i class="fa-solid fa-copy"></i> 复制公式
+                        </button>
+                    </div>
+                </div>
+            </div>`;
+        }).join('');
+    }
+
+    function toggleFuncItem(name) {
+        document.getElementById(`func-item-${name}`).classList.toggle('expanded');
+    }
+
+    function copyFormula(name) {
+        const info = _wpsRegistryCache[name] || {};
+        const params = info.params || {};
+        const keys = Object.keys(params);
+        const formula = `=PYWPS("${name}"${keys.length ? ', ' + keys.map(k => k.toUpperCase()).join(', ') : ''})`;
+        const doFallback = () => {
+            // Clipboard API 不可用时，通过文本区域降级复制
+            const ta = document.createElement('textarea');
+            ta.value = formula; ta.style.position = 'fixed'; ta.style.left = '-9999px';
+            document.body.appendChild(ta);
+            ta.select();
+            try { document.execCommand('copy'); } catch(_) {}
+            document.body.removeChild(ta);
+        };
+        const flashBtn = () => {
+            const btn = document.getElementById(`copybtn-${name}`);
+            if (!btn) return;
+            const orig = btn.innerHTML;
+            btn.innerHTML = '<i class="fa-solid fa-check"></i> 已复制！';
+            setTimeout(() => { btn.innerHTML = orig; }, 1600);
+        };
+        if (navigator.clipboard) {
+            navigator.clipboard.writeText(formula).then(flashBtn).catch(doFallback);
+        } else { doFallback(); flashBtn(); }
+    }
+
+    function filterFuncs(val) {
+        renderFuncPanel(_wpsRegistryCache, val);
+    }
+
+    // =====================================================================
+    // Ace 自动补全 — 自定义补全器
+    // =====================================================================
+    const _PY_BUILTINS = [
+        'print','len','range','list','dict','set','tuple','str','int','float','bool',
+        'type','isinstance','hasattr','getattr','setattr','dir','vars','input','open',
+        'enumerate','zip','map','filter','sorted','reversed','sum','min','max','abs',
+        'round','divmod','pow','hex','oct','bin','ord','chr','repr','format',
+        'any','all','next','iter','id','hash','callable','super','object',
+        'None','True','False','lambda','import','from','as','with','async','await',
+        'yield','return','raise','try','except','finally','if','elif','else',
+        'for','while','break','continue','pass','del','in','not','and','or','is',
+        'global','nonlocal','class','def','assert','wps_py_func',
+    ];
+    const _NUMPY_ATTRS = [
+        'array','zeros','ones','full','empty','linspace','arange','logspace',
+        'random','mean','std','var','sum','dot','cross','transpose','reshape',
+        'concatenate','stack','vstack','hstack','split','where','argmax','argmin',
+        'sort','argsort','unique','squeeze','expand_dims','eye','diag','trace',
+        'linalg','fft','pi','inf','nan','e','newaxis','float64','float32',
+        'int32','int64','bool_','load','save','loadtxt','savetxt','ndarray',
+    ];
+    const _PANDAS_ATTRS = [
+        'DataFrame','Series','Index','read_csv','read_excel','read_json','read_sql',
+        'merge','concat','groupby','pivot_table','melt','crosstab',
+        'to_csv','to_excel','to_json','Timestamp','date_range','NA','NaT','isna','notna',
+    ];
+    const _PLT_ATTRS = [
+        'plot','scatter','bar','barh','hist','pie','imshow','figure','subplot','subplots',
+        'title','xlabel','ylabel','xlim','ylim','legend','grid','show','savefig',
+        'gcf','gca','close','tight_layout','colorbar','xticks','yticks',
+        'axhline','axvline','fill_between','errorbar','boxplot','violinplot',
+        'contour','contourf','quiver','streamplot','annotate','text','arrow',
+        'style','cm','colors','patches','lines',
+    ];
+
+    function buildPyCompleter() {
+        return {
+            id: 'wps_py_completer',
+            getCompletions: function(editor, session, pos, prefix, callback) {
+                if (prefix.length < 1) { callback(null, []); return; }
+                const completions = [];
+                const line = session.getLine(pos.row);
+                const beforePrefix = line.substring(0, pos.column - prefix.length);
+
+                if (beforePrefix.match(/\bnp\.$/) || beforePrefix.match(/\bnumpy\.$/)) {
+                    _NUMPY_ATTRS.filter(v => v.startsWith(prefix)).forEach(v =>
+                        completions.push({ value: v, meta: 'numpy', score: 950 })
+                    );
+                } else if (beforePrefix.match(/\bpd\.$/) || beforePrefix.match(/\bpandas\.$/)) {
+                    _PANDAS_ATTRS.filter(v => v.startsWith(prefix)).forEach(v =>
+                        completions.push({ value: v, meta: 'pandas', score: 950 })
+                    );
+                } else if (beforePrefix.match(/\bplt\.$/)) {
+                    _PLT_ATTRS.filter(v => v.startsWith(prefix)).forEach(v =>
+                        completions.push({ value: v, meta: 'matplotlib', score: 950 })
+                    );
+                } else {
+                    // Python 内建
+                    _PY_BUILTINS.filter(v => v.startsWith(prefix)).forEach(v =>
+                        completions.push({ value: v, meta: 'builtin', score: 700 })
+                    );
+                    // WPS 已注册函数
+                    Object.entries(_wpsRegistryCache).forEach(([name, info]) => {
+                        if (name.toLowerCase().startsWith(prefix.toLowerCase())) {
+                            completions.push({
+                                caption: name,
+                                value: name + '(',
+                                meta: 'WPS函数',
+                                score: 1000,
+                                docHTML: info.sig ? `<b>${name}</b>${escH(info.sig)}` : ''
+                            });
+                        }
+                    });
+                }
+                callback(null, completions);
+            }
+        };
+    }
+
+    // =====================================================================
+    // 主体逻辑
+    // =====================================================================
+
+    const resizeObserver = new ResizeObserver(entries => {
+        for (let entry of entries) {
+            const container = entry.target;
+            if (window.echarts) container.querySelectorAll('.chart-container').forEach(c => echarts.getInstanceByDom(c)?.resize());
+            if (window.Plotly) container.querySelectorAll('.js-plotly-plot').forEach(c => Plotly.Plots.resize(c));
+        }
+    });
+
+    async function initPy(callerId) {
+        if (!pyodide) {
+            if (isPyLoading) return null;
+            isPyLoading = true;
+            if (callerId) document.getElementById(`dot-${callerId}`).className = 'dot busy';
+            pyodide = await loadPyodide();
+            await pyodide.loadPackage(["micropip", "matplotlib", "pandas", "numpy"]);
+            await pyodide.runPythonAsync(`import sys, io\nsys.stdout = io.StringIO()`);
+
+            await pyodide.runPythonAsync(`
+import sys, json
+from js import wps_js_setvalue as _js_sv, wps_js_getvalue as _js_gv, wps_js_show_html as _js_sh
+import __main__
+
+__main__.wps_registry = {}
+
+class _WPS:
+    def setvalue(self, cell_ref, value):
+        try:
+            import numpy as np
+            if isinstance(value, np.ndarray): value = value.tolist()
+        except ImportError: pass
+        if isinstance(value, list) and value and not isinstance(value[0], list):
+            value = [[v] for v in value]
+        _js_sv(str(cell_ref), json.dumps(value))
+
+    def getvalue(self, cell_ref):
+        return json.loads(str(_js_gv(str(cell_ref))))
+
+    def show_html(self, html_content, left=None, top=None, width=500, height=350):
+        """在 WPS 表格活动单元格位置插入 WebShape 显示 HTML 内容。
+
+        Args:
+            html_content (str): 要显示的 HTML 字符串
+            left  (float): 左边距（磅），None 时自动取活动单元格位置
+            top   (float): 上边距（磅），None 时自动取活动单元格位置
+            width (float): 宽度（磅），默认 500
+            height(float): 高度（磅），默认 350
+
+        Example:
+            import wps
+            wps.show_html('<h2 style="color:green">Hello WPS!</h2>')
+            wps.show_html(some_df.to_html(), width=600, height=400)
+        """
+        _l = str(left)  if left  is not None else 'auto'
+        _t = str(top)   if top   is not None else 'auto'
+        result = str(_js_sh(str(html_content), _l, _t, str(width), str(height)))
+        if not result.startswith('ok'):
+            raise RuntimeError(f'WebShape 插入失败: {result}')
+
+_wps_inst = _WPS()
+sys.modules['wps'] = _wps_inst
+
+import builtins
+
+def wps_py_func(f):
+    __main__.wps_registry[f.__name__.upper()] = f
+    return f
+
+builtins.wps_py_func = wps_py_func
+`);
+
+            doRegisterPYWPS();
+
+            if (typeof wps !== "undefined") {
+                try { wps.ApiEvent.AddApiEventListener("WorkbookActivate", () => {}); } catch(e) {}
+            }
+
+            document.querySelectorAll('.dot').forEach(d => d.className = 'dot ready');
+            isPyLoading = false;
+        }
+        return pyodide;
+    }
+
+    function appendCell(anchor, initialData = null) {
+        const id = ++cellCount;
+        const mode = initialData?.mode || 'text';
+        const code = initialData?.code || '';
+
+        const html = `
+            <div class="message-wrapper" id="wrapper-${id}">
+                <div class="message-container">
+                    <div class="message-actions" id="actions-${id}">
+                        <button class="control-btn" onclick="openCellEditor(${id})" title="编辑此块"><i class="fa-solid fa-pen"></i></button>
+                        <button class="control-btn" onclick="removeCell(${id})" title="删除此块"><i class="fa-solid fa-trash"></i></button>
+                    </div>
+                    <div class="cell-editor-box" id="editor-box-${id}">
+                        <div class="dynamic-input-card">
+                            <textarea id="text-in-${id}" style="width:100%;height:120px;border:none;padding:15px;outline:none;resize:none;font-family:monospace;background:transparent;" placeholder="输入内容... (%py, %html, %md)"></textarea>
+                            <div id="ace-${id}" style="height:200px;display:none;"></div>
+                            <div id="md-ui-${id}" style="display:none;"><textarea style="display:none;"></textarea></div>
+                            <div class="toolbar">
+                                <div class="status-indicator">
+                                    <div class="dot" id="dot-${id}"></div>
+                                    <span id="label-${id}">TEXT MODE</span>
+                                </div>
+                                <div style="display:flex;gap:12px;align-items:center;">
+                                    <button onclick="closeCellEditor(${id})" class="control-btn" title="取消编辑 (Esc)"><i class="fa-solid fa-xmark"></i></button>
+                                    <button onclick="runCell(${id})" class="control-btn send-primary" title="运行代码 (Ctrl+Enter)"><i class="fa-solid fa-paper-plane"></i></button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="output-card" id="card-${id}">
+                        <div class="render-content" id="out-${id}"></div>
+                    </div>
+                </div>
+            </div>
+            <div class="cell-divider" onclick="appendCell(this)" title="在此处插入块">
+                <button class="insert-btn"><i class="fa-solid fa-plus"></i></button>
+            </div>`;
+
+        const temp = document.createElement('div');
+        temp.innerHTML = html;
+        const frag = document.createDocumentFragment();
+        while(temp.firstChild) frag.appendChild(temp.firstChild);
+        if (anchor && anchor.after) anchor.after(frag);
+        else document.getElementById('chat-flow').appendChild(frag);
+        initCellLogic(id, mode, code);
+        if (!initialData) openCellEditor(id);
+        resizeObserver.observe(document.getElementById(`out-${id}`));
+    }
+
+    function initCellLogic(id, mode, code) {
+        const wrapper = document.getElementById(`wrapper-${id}`);
+
+        // 配置 Ace + 自动补全
+        const langTools = ace.require("ace/ext/language_tools");
+        const aceInst = ace.edit(`ace-${id}`);
+        aceInst.setTheme("ace/theme/chrome");
+        aceInst.setOptions({
+            fontSize: "14px",
+            showPrintMargin: false,
+            enableBasicAutocompletion: true,
+            enableLiveAutocompletion: true,
+            enableSnippets: true
+        });
+        // 每个编辑器独立补全器：自定义 Python/WPS + 默认关键字 + 文本
+        aceInst.completers = [
+            buildPyCompleter(),
+            langTools.keyWordCompleter,
+            langTools.textCompleter
+        ];
+        aceInst.commands.addCommand({
+            name: "run",
+            bindKey: { win: "Ctrl-Enter", mac: "Command-Enter" },
+            exec: () => runCell(id)
+        });
+
+        const mdInst = editormd(`md-ui-${id}`, {
+            width: "100%", height: 250,
+            path: "https://cdn.jsdelivr.net/npm/editor.md@1.5.0/lib/",
+            watch: true, lineNumbers: true, toolbarIcons: "full", tex: true
+        });
+        wrapper._cellData = { id, mode, aceInst, mdInst };
+
+        const ti = document.getElementById(`text-in-${id}`);
+        ti.oninput = function() {
+            const v = this.value.trim();
+            if (v === '%py') switchCellMode(id, 'py');
+            else if (v === '%html') switchCellMode(id, 'html');
+            else if (v === '%md') switchCellMode(id, 'markdown');
+        };
+        ti.onkeydown = (e) => { if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') runCell(id); };
+        switchCellMode(id, mode, code);
+    }
+
+    function switchCellMode(id, mode, content = "") {
+        const data = document.getElementById(`wrapper-${id}`)._cellData;
+        data.mode = mode;
+        const ti = document.getElementById(`text-in-${id}`);
+        const ai = document.getElementById(`ace-${id}`);
+        const mi = document.getElementById(`md-ui-${id}`);
+        [ti, ai, mi].forEach(el => el.style.display = 'none');
+        document.getElementById(`label-${id}`).innerText = mode.toUpperCase() + " MODE";
+        const dot = document.getElementById(`dot-${id}`);
+        dot.className = (mode === 'py' && pyodide) ? 'dot ready' : 'dot';
+        if (mode === 'py' || mode === 'html') {
+            ai.style.display = 'block';
+            data.aceInst.session.setMode(mode === 'py' ? "ace/mode/python" : "ace/mode/html");
+            if (content) data.aceInst.setValue(content, -1);
+            data.aceInst.focus();
+        } else if (mode === 'markdown') {
+            mi.style.display = 'block';
+            if (content) data.mdInst.setValue(content);
+            setTimeout(() => data.mdInst.resize(), 100);
+        } else {
+            ti.style.display = 'block';
+            if (content) ti.value = content;
+            ti.focus();
+        }
+    }
+
+    function openCellEditor(id) {
+        document.getElementById(`card-${id}`).style.display = 'none';
+        document.getElementById(`actions-${id}`).style.opacity = '0';
+        document.getElementById(`editor-box-${id}`).style.display = 'block';
+    }
+
+    function closeCellEditor(id) {
+        document.getElementById(`editor-box-${id}`).style.display = 'none';
+        document.getElementById(`actions-${id}`).style.opacity = '';
+        if (document.getElementById(`out-${id}`).innerHTML.trim() !== "") {
+            document.getElementById(`card-${id}`).style.display = 'block';
+        }
+    }
+
+    async function runCell(id) {
+        const wrapper = document.getElementById(`wrapper-${id}`);
+        const data = wrapper._cellData;
+        const mode = data.mode;
+        const container = document.getElementById(`out-${id}`);
+        const dot = document.getElementById(`dot-${id}`);
+        let code = (mode === 'py' || mode === 'html')
+            ? data.aceInst.getValue()
+            : (mode === 'markdown' ? data.mdInst.getMarkdown() : document.getElementById(`text-in-${id}`).value);
+        if (!code.trim()) return;
+
+        dot.className = 'dot busy';
+        container.innerHTML = `<span style="color:var(--primary-blue)"><i class="fa-solid fa-spinner fa-spin"></i> 运行中…</span>`;
+        closeCellEditor(id);
+        document.getElementById(`card-${id}`).style.display = 'block';
+
+        try {
+            if (mode === 'py') {
+                const py = await initPy(id);
+				await py.runPythonAsync(`
+try:
+    import matplotlib.pyplot as plt
+    plt.close('all') # 彻底清空内存中的所有图形句柄
+except:
+    pass
+`);
+                if (!py) throw new Error("Python 正在初始化中，请稍后重试…");
+                await py.runPythonAsync(`sys.stdout = io.StringIO()`);
+                py.globals.set('__cell_src__', code.trim());
+                const res = await py.runPythonAsync(
+                    `import pyodide.code as _pc_; await _pc_.eval_code_async(__cell_src__, globals())`
+                );
+                const stdout = py.runPython("sys.stdout.getvalue()");
+                container.innerHTML = "";
+
+                if (stdout.trim()) {
+                    container.insertAdjacentHTML('beforeend', `<pre>${escH(stdout)}</pre>`);
+                }
+                if (res) {
+                    if (res.to_html) {
+                        container.appendChild(document.createRange().createContextualFragment(
+                            sanitizeHTML(res.to_html({ include_plotlyjs: false, full_html: false }))
+                        ));
+                    } else if (res.render_embed) {
+                        container.appendChild(document.createRange().createContextualFragment(sanitizeHTML(res.render_embed())));
+                    } else if (res.constructor && res.constructor.name !== 'PyProxy') {
+						if (res.includes("highcharts")) {
+							container.innerHTML = sanitizeHTML(res);
+						}
+						else {
+							container.insertAdjacentHTML('beforeend', `<pre>${escH(res.toString())}</pre>`);
+						}
+                    }
+                }
+
+                // 通过 Python savefig 将每个图按 cellId+序号保存到内存，插入/下载时通过 key 读取
+                window._mplFigData = window._mplFigData || {};
+                try {
+                    py.globals.set('__cell_id__', id);
+                    const _fcount = await py.runPythonAsync(`
+import matplotlib.pyplot as _mplt, io as _mio, base64 as _mb64
+_fns = _mplt.get_fignums()
+for _i, _fn in enumerate(_fns):
+    _fig = _mplt.figure(_fn)
+    _buf = _mio.BytesIO()
+    _fig.savefig(_buf, format='png', bbox_inches='tight', dpi=100)
+    _buf.seek(0)
+    _b64str = _mb64.b64encode(_buf.read()).decode('ascii')
+    open(f'/tmp/mpl_{__cell_id__}_{_i}.b64', 'w').write(_b64str)
+len(_fns)
+`);
+                    for (let _i = 0; _i < Number(_fcount || 0); _i++) {
+                        py.globals.set('__fig_idx__', _i);
+                        const _b64 = await py.runPythonAsync(`open(f'/tmp/mpl_{__cell_id__}_{__fig_idx__}.b64').read()`);
+                        window._mplFigData[`${id}_${_i}`] = 'data:image/png;base64,' + _b64;
+                    }
+                } catch(_) {}
+
+                // 捕获并渲染 matplotlib 图形（带插入/下载按钮）
+                await captureMplFigures(id, container);
+
+                refreshWPSPanel();
+                try { wps.EtApplication().CalculateFull(); } catch(e) {}
+
+            } else if (mode === 'html') {
+                container.innerHTML = sanitizeHTML(code);
+            } else if (mode === 'markdown') {
+                container.innerHTML = sanitizeHTML(marked.parse(code));
+            } else {
+                container.innerText = code;
+            }
+        } catch(e) {
+            // Jupyter 风格 Traceback
+            const msg = (e && e.message) ? e.message : String(e);
+            container.innerHTML = formatJupyterTraceback(msg);
+        }
+
+        dot.className = pyodide ? 'dot ready' : 'dot';
+        saveCache();
+    }
+
+    async function captureMplFigures(cellId, container) {
+    await new Promise(r => setTimeout(r, 200));
+
+    const mplDivs = Array.from(document.querySelectorAll('.mpl-toolbar'))
+        .filter(div => {
+            const figRoot = div.parentElement;
+            return figRoot.parentElement === document.body && !figRoot.__captured__;
+        });
+
+    for (let idx = 0; idx < mplDivs.length; idx++) {
+        const figRoot = mplDivs[idx].parentElement;
+        figRoot.__captured__ = true;
+
+        figRoot.style.width = '100%';
+        figRoot.style.position = 'relative';
+
+        const span = figRoot.querySelector('span');
+        if (span && (!span.previousElementSibling || span.previousElementSibling.tagName !== 'BR')) {
+            const br = document.createElement('br');
+            span.parentNode.insertBefore(br, span);
+        }
+
+        const pltdiv = figRoot.querySelector('div[tabindex="0"]');
+        if (pltdiv) pltdiv.style.width = 'calc(100% - 2px)';
+
+        const wrap = document.createElement('div');
+        wrap.className = 'mpl-fig-wrapper';
+        wrap.style.marginBottom = '15px';
+        wrap.appendChild(figRoot);
+
+        // 按钮使用 key 在 window._mplFigData 中查找，key = cellId_idx，各自独立
+        const figKey = `${cellId}_${idx}`;
+        if (window._mplFigData && window._mplFigData[figKey]) {
+            wrap.appendChild(_makeMplActions(figKey));
+        }
+
+        container.appendChild(wrap);
+    }
+}
+
+    function _makeMplActions(figKey) {
+        const actions = document.createElement('div');
+        actions.className = 'mpl-actions';
+
+        const iBtn = document.createElement('button');
+        iBtn.className = 'mpl-insert-btn';
+        iBtn.innerHTML = '<i class="fa-solid fa-clipboard"></i> 复制图片';
+        iBtn.onclick = async () => {
+            const url = window._mplFigData && window._mplFigData[figKey];
+            if (!url) return;
+            try {
+                const res = await fetch(url);
+                const blob = await res.blob();
+                await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
+                iBtn.innerHTML = '<i class="fa-solid fa-check"></i> 已复制';
+                setTimeout(() => { iBtn.innerHTML = '<i class="fa-solid fa-clipboard"></i> 复制图片'; }, 1500);
+            } catch(e) {
+                console.error('[clipboard] 复制失败:', e);
+                iBtn.innerHTML = '<i class="fa-solid fa-xmark"></i> 复制失败';
+                setTimeout(() => { iBtn.innerHTML = '<i class="fa-solid fa-clipboard"></i> 复制图片'; }, 1500);
+            }
+        };
+
+        const sBtn = document.createElement('button');
+        sBtn.className = 'mpl-save-btn';
+        sBtn.innerHTML = '<i class="fa-solid fa-download"></i> 下载图片';
+        sBtn.onclick = () => {
+            const url = window._mplFigData && window._mplFigData[figKey];
+            if (!url) return;
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `matplotlib_${figKey}_${Date.now()}.png`;
+            a.click();
+        };
+
+        actions.appendChild(iBtn);
+        actions.appendChild(sBtn);
+        return actions;
+    }
+
+    function removeCell(id) {
+        if (confirm('确定删除此块？')) {
+            const w = document.getElementById(`wrapper-${id}`);
+            if (w.nextElementSibling) w.nextElementSibling.remove();
+            w.remove();
+            saveCache();
+        }
+    }
+
+    function saveCache() {
+        const hist = [];
+        document.querySelectorAll('.message-wrapper').forEach(w => {
+            const d = w._cellData;
+            if (!d) return;
+            let code = (d.mode === 'py' || d.mode === 'html')
+                ? d.aceInst.getValue()
+                : (d.mode === 'markdown' ? d.mdInst.getMarkdown() : document.getElementById(`text-in-${d.id}`).value);
+            hist.push({ mode: d.mode, code });
+        });
+        localStorage.setItem('nb_multi_v11', JSON.stringify(hist));
+    }
+
+    // =====================================================================
+    // 按钮事件
+    // =====================================================================
+
+    document.getElementById('global-pdf-btn').onclick = async function() {
+        const { jsPDF } = window.jspdf;
+        const btn = this, orig = btn.innerHTML;
+        btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i>';
+        try {
+            const wrappers = document.querySelectorAll('.message-wrapper');
+            const doc = new jsPDF('p', 'mm', 'a4');
+            const pw = doc.internal.pageSize.getWidth(), ph = doc.internal.pageSize.getHeight();
+            const m = 12, cw = pw - 2 * m;
+            let y = m;
+            for (const wrapper of wrappers) {
+                const card = wrapper.querySelector('.output-card');
+                if (!card || card.offsetHeight < 5) continue;
+                const canvas = await html2canvas(card, { scale: 2, useCORS: true, logging: false, backgroundColor: "#fff" });
+                const imgData = canvas.toDataURL('image/jpeg', 0.98);
+                const ih = (canvas.height * cw) / canvas.width;
+                if (y + ih > ph - m) { doc.addPage(); y = m; }
+                doc.addImage(imgData, 'JPEG', m, y, cw, ih);
+                y += ih + 6;
+            }
+            doc.save(`Notebook_${Date.now()}.pdf`);
+        } catch(err) { alert("导出失败: " + err.message); }
+        btn.innerHTML = orig;
+    };
+
+    document.getElementById('global-add-btn').onclick = () => {
+        const dividers = document.querySelectorAll('.cell-divider');
+        appendCell(dividers[dividers.length - 1]);
+        document.getElementById('scroll-container').scrollTop = document.getElementById('scroll-container').scrollHeight;
+    };
+
+    document.getElementById('global-clear-btn').onclick = () => {
+        if (confirm('确定清空所有记录？')) { localStorage.clear(); location.reload(); }
+    };
+
+    document.getElementById('global-wps-btn').onclick = () => {
+        const panel = document.getElementById('wps-func-panel');
+        panel.classList.toggle('open');
+        if (panel.classList.contains('open')) {
+            refreshWPSPanel();
+            document.getElementById('func-search-input').focus();
+        }
+    };
+
+    document.getElementById('func-panel-close').onclick = () => {
+        document.getElementById('wps-func-panel').classList.remove('open');
+    };
+
+    // Esc 键关闭面板
+    document.addEventListener('keydown', e => {
+        if (e.key === 'Escape') {
+            document.getElementById('wps-func-panel').classList.remove('open');
+        }
+    });
+
+    // =====================================================================
+    // 自动恢复
+    // =====================================================================
+    async function autoRecover() {
+        const cache = localStorage.getItem('nb_multi_v11');
+        if (cache) {
+            const data = JSON.parse(cache);
+            for (const item of data) {
+                appendCell(null, item);
+                await runCell(cellCount);
+            }
+        } else {
+            appendCell();
+        }
+        // Pyodide 就绪且所有函数已注册后，强制 WPS 重算公式
+        if (pyodide) {
+            try { wps.EtApplication().CalculateFull(); } catch(e) {}
+        }
+    }
+
+    $(autoRecover);
+</script>
+</body>
+</html>

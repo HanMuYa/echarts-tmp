@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>WPS ECharts 渲染器</title>
+<script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
+<style>
+html, body {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: transparent;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+#chart {
+  width: 100%;
+  height: 100%;
+}
+#error-msg {
+  display: none;
+  padding: 20px;
+  color: #a80000;
+  font-size: 13px;
+  text-align: center;
+  word-break: break-all;
+}
+#loading {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  color: #999;
+  font-size: 13px;
+}
+</style>
+</head>
+<body>
+<div id="loading">加载图表中...</div>
+<div id="chart"></div>
+<div id="error-msg"></div>
+
+<script>
+(function () {
+  'use strict';
+
+  function showError(msg) {
+    var loading = document.getElementById('loading');
+    var errorEl = document.getElementById('error-msg');
+    if (loading) loading.style.display = 'none';
+    errorEl.style.display = 'block';
+    errorEl.textContent = msg;
+  }
+
+  function hideLoading() {
+    var loading = document.getElementById('loading');
+    if (loading) loading.style.display = 'none';
+  }
+
+  /* ===== 从 xlsx CustomXMLPart 中查找 ECharts option ===== */
+  function findEchartXml(targetChartId) {
+    try {
+      var et = (typeof wps !== 'undefined') ? wps.EtApplication()
+             : (typeof Application !== 'undefined') ? Application
+             : null;
+      if (!et || !et.ActiveWorkbook) {
+        showError('未检测到 WPS 环境，请在内置 WebShape 中运行');
+        return null;
+      }
+
+      var parts = et.ActiveWorkbook.CustomXMLParts;
+      if (!parts || parts.Count === 0) {
+        showError('当前工作簿中没有 CustomXMLPart（请先在 Py-Excel 面板中调用 save_echart_option）');
+        return null;
+      }
+
+      var matches = [];
+
+      for (var i = 1; i <= parts.Count; i++) {
+        var xml = parts.Item(i).XML;
+        if (!xml) continue;
+
+        // 匹配 <echartOption id="..." ver="...">
+        var idMatch = xml.match(/<echartOption\s+id="([^"]+)"(?:\s+ver="([^"]*)")?\s*>/);
+        if (!idMatch) continue;
+
+        var xmlId = idMatch[1];
+        if (targetChartId && xmlId !== targetChartId) continue;
+
+        // 提取 CDATA 里的 base64
+        var dataMatch = xml.match(/<data>\s*<!\[CDATA\[([\s\S]*?)\]\]>\s*<\/data>/);
+        if (!dataMatch) continue;
+
+        var b64 = dataMatch[1].trim();
+        matches.push({ chartId: xmlId, b64: b64 });
+      }
+
+      if (matches.length === 0) {
+        if (targetChartId) {
+          showError('未找到 chartId: ' + targetChartId +
+            '\n可用 chartId 请调 listEchartCharts() 查看');
+        } else {
+          showError('当前工作簿中没有 ECharts 数据');
+        }
+        return null;
+      }
+
+      return matches;
+    } catch (e) {
+      showError('读取 CustomXMLPart 出错: ' + e.message);
+      return null;
+    }
+  }
+
+  /* ===== base64 解码 → JSON → ECharts 渲染 ===== */
+  function decodeAndRender(b64) {
+    try {
+      var jsonStr = '';
+      // 现代浏览器用 TextDecoder，降级用 atob
+      if (typeof TextDecoder !== 'undefined') {
+        var bytes = Uint8Array.from(atob(b64), function (c) { return c.charCodeAt(0); });
+        jsonStr = new TextDecoder('utf-8').decode(bytes);
+      } else {
+        jsonStr = decodeURIComponent(
+          atob(b64).split('').map(function (c) {
+            return '%' + ('00' + c.charCodeAt(0).toString(16)).slice(-2);
+          }).join('')
+        );
+      }
+
+      var option = JSON.parse(jsonStr);
+      return option;
+    } catch (e) {
+      showError('ECharts option 解析失败: ' + e.message);
+      return null;
+    }
+  }
+
+  function renderChart(option) {
+    hideLoading();
+    var dom = document.getElementById('chart');
+    var myChart = echarts.init(dom);
+
+    // 响应 WebShape 尺寸变化
+    window.addEventListener('resize', function () {
+      myChart.resize();
+    });
+
+    myChart.setOption(option);
+  }
+
+  function renderAllCharts(matches) {
+    hideLoading();
+
+    if (matches.length === 1) {
+      // 单图表：全屏渲染
+      var option = decodeAndRender(matches[0].b64);
+      if (option) renderChart(option);
+      return;
+    }
+
+    // 多图表：自动分网格
+    var dom = document.getElementById('chart');
+    dom.style.display = 'flex';
+    dom.style.flexWrap = 'wrap';
+
+    var charts = [];
+    matches.forEach(function (m) {
+      var option = decodeAndRender(m.b64);
+      if (!option) return;
+
+      var wrapper = document.createElement('div');
+      wrapper.style.width = matches.length === 2 ? '50%' : '33.33%';
+      wrapper.style.height = matches.length === 2 ? '100%' : '50%';
+      wrapper.style.minWidth = '300px';
+      wrapper.style.minHeight = '250px';
+      dom.appendChild(wrapper);
+
+      var instance = echarts.init(wrapper);
+      instance.setOption(option);
+      charts.push(instance);
+    });
+
+    window.addEventListener('resize', function () {
+      charts.forEach(function (c) { c.resize(); });
+    });
+  }
+
+  /* ===== 入口 ===== */
+  function init() {
+    // 优先从 URL 参数获取目标 chartId
+    var params = new URLSearchParams(location.search);
+    var targetChartId = params.get('chartId') || null;
+
+    var matches = findEchartXml(targetChartId);
+    if (!matches) return;
+
+    if (matches.length === 0) {
+      showError('未找到 ECharts 配置数据');
+      return;
+    }
+
+    if (matches.length === 1) {
+      var option = decodeAndRender(matches[0].b64);
+      if (option) renderChart(option);
+    } else {
+      renderAllCharts(matches);
+    }
+  }
+
+  // 等 DOM 好了再跑（WebShape 内可能有延迟）
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init);
+  } else {
+    init();
+  }
+})();
+</script>
+</body>
+</html>
